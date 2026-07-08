@@ -23,7 +23,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 #app { display:flex; height:100vh; }
 #sidebar { width:260px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
 #sidebar-header { padding:16px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
-#sidebar-header h2 { font-size:16px; font-weight:600; letter-spacing:-0.3px; }
+#sidebar-header h2 { font-size:16px; font-weight:700; letter-spacing:-0.5px; }
 #sidebar-header .status-dot { width:8px; height:8px; border-radius:50%; background:var(--online); display:inline-block; margin-right:6px; }
 #device-list { flex:1; overflow-y:auto; padding:8px; }
 .device-item { padding:12px; margin:4px 0; border-radius:var(--radius); cursor:pointer; transition:background .15s; display:flex; align-items:center; gap:10px; border:1px solid transparent; }
@@ -75,7 +75,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 <div id="app">
   <div id="sidebar">
     <div id="sidebar-header">
-      <h2><span class="status-dot" id="conn-dot"></span>小奈Matrix <span style="font-size:10px;color:var(--text2);font-weight:400;">v0.1.0</span></h2>
+      <h2>小奈Matrix <span style="font-size:10px;color:var(--text2);font-weight:400;">v0.1.0</span></h2>
+      <button onclick="logout()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;">登出</button>
     </div>
     <div id="device-list"></div>
     <div id="sidebar-footer">
@@ -158,7 +159,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 // ============================================================
 const adminKey = new URLSearchParams(location.search).get('key') || 'admin123';
 const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-const wsUrl = `${protocol}//${location.host}/ws/dash?key=${encodeURIComponent(adminKey)}`;
+const wsUrl = `${protocol}//${location.host}/ws/dash`;
 
 let ws = null;
 let devices = [];
@@ -168,6 +169,17 @@ let ctx = canvas.getContext('2d');
 let img = new Image();
 let devW = 1080, devH = 1920;
 let offsetX = 0, offsetY = 0;
+
+// ============================================================
+// Init
+// ============================================================
+(async function() {
+  try {
+    var resp = await fetch('/api/auth-check');
+    if (!resp.ok) { location.href = '/login.html'; return; }
+  } catch(e) { location.href = '/login.html'; return; }
+  connect();
+})();
 
 // ============================================================
 // WebSocket
@@ -410,6 +422,10 @@ function sendKey(key) {
   send({type: 'cmd_key', device_id: activeDeviceId, key: key});
 }
 
+function logout() {
+  fetch('/api/logout', {method:'POST'}).finally(() => location.href = '/login.html');
+}
+
 function sendText() {
   if (!activeDeviceId) return alert('请先选择一个设备');
   const input = document.getElementById('text-input');
@@ -473,7 +489,7 @@ async function doBind() {
 
   const apiBase = `${location.protocol}//${location.host}`;
   try {
-    const resp = await fetch(`${apiBase}/api/bind?key=${encodeURIComponent(adminKey)}`, {
+    const resp = await fetch(`${apiBase}/api/bind`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({code})
@@ -636,7 +652,7 @@ async function deleteDevice(id) {
   if (!confirm('确定要删除该设备吗？')) return;
   const apiBase = `${location.protocol}//${location.host}`;
   try {
-    const resp = await fetch(`${apiBase}/api/devices/${encodeURIComponent(id)}?key=${encodeURIComponent(adminKey)}`, {
+    const resp = await fetch(`${apiBase}/api/devices/${encodeURIComponent(id)}`, {
       method: 'DELETE'
     });
     if (resp.ok) {
@@ -650,10 +666,6 @@ async function deleteDevice(id) {
   } catch(e) {}
 }
 
-// ============================================================
-// Init
-// ============================================================
-connect();
 
 // 鼠标悬停显示屏幕坐标
 canvas.addEventListener('mousemove', function(e) {

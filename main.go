@@ -442,8 +442,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDashWS(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
-	if !checkAdminKey(key) {
+	if !checkSession(r) && !checkAdminKey(r.URL.Query().Get("key")) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -674,16 +673,97 @@ func mustJSON(v interface{}) []byte {
 }
 
 // ============================================================
+// Session / Auth
+// ============================================================
+func createSessionToken() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+var sessions = sync.Map{} // token -> expiry time
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request) string {
+	token := createSessionToken()
+	sessions.Store(token, time.Now().Add(24*time.Hour))
+	http.SetCookie(w, &http.Cookie{
+		Name:     "nftouch_session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400,
+	})
+	return token
+}
+
+func checkSession(r *http.Request) bool {
+	cookie, err := r.Cookie("nftouch_session")
+	if err != nil {
+		return false
+	}
+	val, ok := sessions.Load(cookie.Value)
+	if !ok {
+		return false
+	}
+	expiry, ok := val.(time.Time)
+	if !ok || time.Now().After(expiry) {
+		sessions.Delete(cookie.Value)
+		return false
+	}
+	return true
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+	if req.Username != "admin" || req.Password != adminPassword {
+		writeJSON(w, 401, map[string]string{"error": "用户名或密码错误"})
+		return
+	}
+	setSessionCookie(w, r)
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+func handleAuthCheck(w http.ResponseWriter, r *http.Request) {
+	if checkSession(r) {
+		writeJSON(w, 200, map[string]string{"status": "ok"})
+	} else {
+		writeJSON(w, 401, map[string]string{"status": "unauthorized"})
+	}
+}
+
+func handleLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("nftouch_session")
+	if err == nil {
+		sessions.Delete(cookie.Value)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:   "nftouch_session",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+// ============================================================
 // Middleware
 // ============================================================
 
 func adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key := r.URL.Query().Get("key")
-		if key == "" {
-			key = r.Header.Get("X-Admin-Key")
-		}
-		if !checkAdminKey(key) {
+		if !checkSession(r) && !checkAdminKey(r.URL.Query().Get("key")) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -709,19 +789,38 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // ============================================================
 
 var (
-	adminKey   string
-	listenAddr string
-	tlsCert    string
-	tlsKey     string
-	dbPath     string
+	staticDir      string
+	adminKey       string
+	adminPassword  string
+	listenAddr     string
+	tlsCert        string
+	tlsKey         string
+	dbPath         string
+	sessionSecret  string
 )
+
+func authStatic(fs http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		if checkSession(r) || r.URL.Query().Get("key") == adminKey {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		http.ServeFile(w, r, staticDir+"/login.html")
+	}
+}
 
 func main() {
 	adminKey = envOrDefault("ADMIN_KEY", "admin123")
+	adminPassword = envOrDefault("ADMIN_PASSWORD", "nf123456")
+	sessionSecret = envOrDefault("SESSION_SECRET", "change-me-please")
 	listenAddr = envOrDefault("LISTEN_ADDR", ":8443")
 	tlsCert = os.Getenv("TLS_CERT")
 	tlsKey = os.Getenv("TLS_KEY")
 	dbPath = envOrDefault("DB_PATH", "./nftouch.db")
+	staticDir = envOrDefault("STATIC_DIR", "./static")
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.Printf("=== NFTouch Server MVP ===")
@@ -750,6 +849,9 @@ func main() {
 		return adminAuthMiddleware(corsMiddleware(h))
 	}
 
+	mux.HandleFunc("POST /api/login", corsMiddleware(handleLogin))
+	mux.HandleFunc("POST /api/logout", handleLogout)
+	mux.HandleFunc("GET /api/auth-check", handleAuthCheck)
 	mux.HandleFunc("POST /api/bind", api(handleBind))
 	mux.HandleFunc("GET /api/devices", api(handleGetDevices))
 	mux.HandleFunc("GET /api/devices/{id}", api(handleGetDevice))
@@ -760,7 +862,7 @@ func main() {
 
 	staticDir := envOrDefault("STATIC_DIR", "./static")
 	fs := http.FileServer(http.Dir(staticDir))
-	mux.Handle("GET /", fs)
+	mux.Handle("GET /", authStatic(fs))
 
 	log.Printf("Routes registered")
 	log.Printf("Static files: %s", staticDir)
