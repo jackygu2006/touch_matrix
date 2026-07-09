@@ -102,7 +102,7 @@ func setDeviceOffline(deviceID string) error {
 }
 
 func getDevices() ([]Device, error) {
-	rows, err := db.Query(`SELECT id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY last_seen DESC`)
+	rows, err := db.Query(`SELECT id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -463,6 +463,19 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 
 	devices, _ := getDevices()
 	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: devices}))
+
+	// 定期同步设备状态（10s），修正可能的掉帧
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			dc.mu.Lock()
+			devs, _ := getDevices()
+			err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: devs}))
+			dc.mu.Unlock()
+			if err != nil { return }
+		}
+	}()
 
 	for {
 		_, data, err := c.Read(bgCtx)

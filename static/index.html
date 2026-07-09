@@ -82,6 +82,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
       </div>
     </div>
     <div id="device-list"></div>
+    <div id="sort-bar" style="padding:4px 8px;display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);">
+      <button onclick="sortDevices('id')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">ID <span id="sort-id-dir"></span></button>
+      <button onclick="sortDevices('model')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">型号</button>
+      <button onclick="sortDevices('time')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">绑定时间</button>
+    </div>
     <div id="sidebar-footer">
       <button id="bind-btn" onclick="showBindModal()">+ 绑定设备</button>
     </div>
@@ -301,14 +306,38 @@ function updateStatus(status, text) {
 // ============================================================
 // Device List
 // ============================================================
+var sortField = 'time', sortAsc = true;
+
+function sortDevices(field) {
+  if (sortField === field && field === 'id') {
+    sortAsc = !sortAsc;
+    document.getElementById('sort-id-dir').textContent = sortAsc ? '▲' : '▼';
+  } else {
+    sortField = field;
+    sortAsc = true;
+    document.getElementById('sort-id-dir').textContent = '';
+  }
+  if (field !== 'id') document.getElementById('sort-id-dir').textContent = '';
+  renderDeviceList();
+}
+
 function renderDeviceList() {
+  var sorted = devices.slice().sort(function(a, b) {
+    var va, vb;
+    if (sortField === 'id') { va = (a.name||a.id).toLowerCase(); vb = (b.name||b.id).toLowerCase(); }
+    else if (sortField === 'model') { va = (a.model||'').toLowerCase(); vb = (b.model||'').toLowerCase(); }
+    else { va = a.created_at||''; vb = b.created_at||''; }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
   const container = document.getElementById('device-list');
   if (devices.length === 0) {
     container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text2);font-size:13px;">暂无设备<br>点击下方按钮绑定</div>';
     return;
   }
 
-  container.innerHTML = devices.map(d => `
+  container.innerHTML = sorted.map(d => `
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
       <div class="dot ${d.status === 'online' ? 'online' : 'offline'}"></div>
       <div class="info">
@@ -483,7 +512,16 @@ function buildGrid() {
   var countEl = document.getElementById('grid-count');
   container.innerHTML = '';
   deviceCanvases = {};
-  devices.forEach(function(d) {
+  var sorted = devices.slice().sort(function(a, b) {
+    var va, vb;
+    if (sortField === 'id') { va = (a.name||a.id).toLowerCase(); vb = (b.name||b.id).toLowerCase(); }
+    else if (sortField === 'model') { va = (a.model||'').toLowerCase(); vb = (b.model||'').toLowerCase(); }
+    else { va = a.created_at||''; vb = b.created_at||''; }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+  sorted.forEach(function(d) {
     var card = document.createElement('div');
     card.style.cssText = 'width:' + w + ';min-width:150px;background:var(--surface);border-radius:10px;overflow:hidden;border:1px solid var(--border);';
     card.innerHTML = '<div style="padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:6px;">' +
@@ -491,7 +529,43 @@ function buildGrid() {
       escHtml(d.name||d.id) + ' <span style="color:var(--text2);">' + escHtml(d.model||'') + '</span></div>';
     var cvs = document.createElement('canvas');
     cvs.style.cssText = 'width:100%;aspect-ratio:' + (d.resolution||'720x1600').replace('x','/') + ';background:#000;';
+    var btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:4px;padding:6px 10px;';
+    btns.innerHTML = '<button style="flex:1;padding:4px 0;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;">🏠 主页</button>' +
+      '<button style="flex:1;padding:4px 0;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;">← 返回</button>';
+    btns.children[0].onclick = function(e) { e.stopPropagation(); send({type:'cmd_key', device_id: d.id, key:'home'}); };
+    btns.children[1].onclick = function(e) { e.stopPropagation(); send({type:'cmd_key', device_id: d.id, key:'back'}); };
     card.appendChild(cvs);
+    card.appendChild(btns);
+    
+    // 文本输入行
+    var txtRow = document.createElement('div');
+    txtRow.style.cssText = 'display:flex;gap:3px;padding:0 10px 4px 10px;';
+    var txtInp = document.createElement('input');
+    txtInp.placeholder = '文字...';
+    txtInp.style.cssText = 'flex:1;padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:10px;outline:none;min-width:0;';
+    var txtBtn = document.createElement('button');
+    txtBtn.textContent = '发';
+    txtBtn.style.cssText = 'padding:3px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;';
+    txtBtn.onclick = function(e) { e.stopPropagation(); var v=txtInp.value.trim(); if(v){ send({type:'cmd_input', device_id:d.id, text:v}); txtInp.value=''; } };
+    txtInp.onkeydown = function(e) { if(e.key==='Enter'){ e.stopPropagation(); var v=txtInp.value.trim(); if(v){ send({type:'cmd_input', device_id:d.id, text:v}); txtInp.value=''; } } };
+    txtRow.appendChild(txtInp); txtRow.appendChild(txtBtn);
+    card.appendChild(txtRow);
+    
+    // AI 任务行
+    var aiRow = document.createElement('div');
+    aiRow.style.cssText = 'display:flex;gap:3px;padding:0 10px 6px 10px;';
+    var aiInp = document.createElement('input');
+    aiInp.placeholder = 'AI 任务...';
+    aiInp.style.cssText = 'flex:1;padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:10px;outline:none;min-width:0;';
+    var aiBtn = document.createElement('button');
+    aiBtn.textContent = '▶';
+    aiBtn.style.cssText = 'padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:10px;';
+    aiBtn.onclick = function(e) { e.stopPropagation(); var v=aiInp.value.trim(); if(v){ send({type:'cmd_task', device_id:d.id, prompt:v}); aiInp.value=''; } };
+    aiInp.onkeydown = function(e) { if(e.key==='Enter'){ e.stopPropagation(); var v=aiInp.value.trim(); if(v){ send({type:'cmd_task', device_id:d.id, prompt:v}); aiInp.value=''; } } };
+    aiRow.appendChild(aiInp); aiRow.appendChild(aiBtn);
+    card.appendChild(aiRow);
+    
     container.appendChild(card);
     
     // 绑定点击事件
@@ -521,9 +595,9 @@ function buildGrid() {
         var dx = Math.abs(endX - touchStart.x);
         var dy = Math.abs(endY - touchStart.y);
         if (dx < 8 && dy < 8 && Date.now() - touchStartTime < 400) {
-          send({type: 'cmd_tap', device_id: devId, x: touchStart.x - (ox.x||0), y: touchStart.y - (ox.y||0)});
+          send({type: 'cmd_tap', device_id: d.id, x: touchStart.x - (ox.x||0), y: touchStart.y - (ox.y||0)});
         } else {
-          send({type: 'cmd_swipe', device_id: devId, x1: touchStart.x - (ox.x||0), y1: touchStart.y - (ox.y||0), x2: endX - (ox.x||0), y2: endY - (ox.y||0), duration: Math.min(Date.now() - touchStartTime, 1000)});
+          send({type: 'cmd_swipe', device_id: d.id, x1: touchStart.x - (ox.x||0), y1: touchStart.y - (ox.y||0), x2: endX - (ox.x||0), y2: endY - (ox.y||0), duration: Math.min(Date.now() - touchStartTime, 1000)});
         }
         touchStart = null;
       });
