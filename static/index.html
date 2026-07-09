@@ -76,7 +76,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
   <div id="sidebar">
     <div id="sidebar-header">
       <h2>小奈Matrix <span style="font-size:10px;color:var(--text2);font-weight:400;">v0.1.0</span></h2>
-      <button onclick="logout()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;">登出</button>
+      <div style="display:flex;gap:6px;">
+        <button id="grid-toggle" onclick="toggleGrid()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px;" title="综合看板">▦</button>
+        <button onclick="logout()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;">登出</button>
+      </div>
     </div>
     <div id="device-list"></div>
     <div id="sidebar-footer">
@@ -90,6 +93,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
         选择一个设备查看实时屏幕
       </div>
       <canvas id="screen-canvas" class="hidden"></canvas>
+    </div>
+    <div id="grid-view" style="display:none;flex:1;overflow-y:auto;padding:12px;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#000;">
+      <div id="grid-toolbar" style="width:100%;padding:0 0 8px 0;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);">
+        每行 <select id="grid-cols" onchange="buildGrid()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:12px;">
+          <option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option>
+        </select> 台
+        <span style="flex:1;"></span>
+        <span id="grid-count"></span>
+      </div>
+      <div id="grid-container" style="display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;width:100%;"></div>
     </div>
     <div id="task-msg" style="background:var(--surface2);border-bottom:1px solid var(--border);padding:6px 20px;font-size:12px;color:var(--text2);min-height:20px;display:none;"></div>
     <div id="cal-bar" style="background:var(--accent);color:#fff;padding:8px 20px;font-size:12px;display:none;align-items:center;gap:12px;">
@@ -169,6 +182,8 @@ let ctx = canvas.getContext('2d');
 let img = new Image();
 let devW = 1080, devH = 1920;
 let offsetX = 0, offsetY = 0;
+let gridMode = false;
+let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 
 // ============================================================
 // Init
@@ -204,6 +219,7 @@ function connect() {
           devices = msg.devices || [];
           renderDeviceList();
           updateDeviceStatus();
+          if (gridMode) buildGrid();
           break;
         case 'frame':
           pendingFrameHeader = msg;
@@ -216,7 +232,23 @@ function connect() {
           break;
       }
     } else if (e.data instanceof ArrayBuffer) {
-      if (pendingFrameHeader && pendingFrameHeader.device_id === activeDeviceId) {
+      if (pendingFrameHeader) {
+        var fdevId = pendingFrameHeader.device_id;
+        // Grid mode: render to device canvas
+        if (gridMode && deviceCanvases[fdevId]) {
+          var dc = deviceCanvases[fdevId];
+          const blob = new Blob([e.data], {type: 'image/jpeg'});
+          const url = URL.createObjectURL(blob);
+          dc.img.onload = function() {
+            dc.canvas.width = dc.img.naturalWidth;
+            dc.canvas.height = dc.img.naturalHeight;
+            dc.ctx.drawImage(dc.img, 0, 0);
+            URL.revokeObjectURL(url);
+          };
+          dc.img.src = url;
+        }
+        // Single mode: render to main canvas
+        if (!gridMode && fdevId === activeDeviceId) {
         const frameDevId = pendingFrameHeader.device_id;
         const blob = new Blob([e.data], {type: 'image/jpeg'});
         const url = URL.createObjectURL(blob);
@@ -240,6 +272,7 @@ function connect() {
         document.getElementById('screen-placeholder').classList.add('hidden');
         canvas.classList.remove('hidden');
       }
+      } // close pendingFrameHeader if
       pendingFrameHeader = null;
     }
   };
@@ -422,6 +455,84 @@ function sendKey(key) {
   send({type: 'cmd_key', device_id: activeDeviceId, key: key});
 }
 
+function toggleGrid() {
+  gridMode = !gridMode;
+  var btn = document.getElementById('grid-toggle');
+  var gv = document.getElementById('grid-view');
+  var sa = document.getElementById('screen-area');
+  var cb = document.getElementById('control-bar');
+  if (gridMode) {
+    btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)';
+    sa.style.display = 'none'; cb.style.display = 'none';
+    gv.style.display = 'block';
+    send({type: 'watch_all'});
+    buildGrid();
+  } else {
+    btn.style.borderColor = 'var(--border)'; btn.style.color = 'var(--text2)';
+    sa.style.display = ''; cb.style.display = '';
+    gv.style.display = 'none';
+    if (activeDeviceId) send({type: 'watch_one', device_id: activeDeviceId});
+  }
+}
+
+function buildGrid() {
+  var cols = parseInt(document.getElementById('grid-cols').value) || 3;
+  var gap = 12;
+  var w = 'calc(' + (100/cols).toFixed(2) + '% - ' + (gap - gap/cols).toFixed(0) + 'px)';
+  var container = document.getElementById('grid-container');
+  var countEl = document.getElementById('grid-count');
+  container.innerHTML = '';
+  deviceCanvases = {};
+  devices.forEach(function(d) {
+    var card = document.createElement('div');
+    card.style.cssText = 'width:' + w + ';min-width:150px;background:var(--surface);border-radius:10px;overflow:hidden;border:1px solid var(--border);';
+    card.innerHTML = '<div style="padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:6px;">' +
+      '<span style="width:6px;height:6px;border-radius:50%;background:' + (d.status==='online'?'var(--online)':'var(--offline)') + ';"></span>' +
+      escHtml(d.name||d.id) + ' <span style="color:var(--text2);">' + escHtml(d.model||'') + '</span></div>';
+    var cvs = document.createElement('canvas');
+    cvs.style.cssText = 'width:100%;aspect-ratio:' + (d.resolution||'720x1600').replace('x','/') + ';background:#000;';
+    card.appendChild(cvs);
+    container.appendChild(card);
+    
+    // 绑定点击事件
+    (function(devId, cvsEl) {
+      var touchStart = null, touchStartTime = 0;
+      cvsEl.addEventListener('mousedown', function(e) {
+        var rect = cvsEl.getBoundingClientRect();
+        var sx = devW, sy = devH;
+        if (d.resolution) {
+          var parts = d.resolution.split('x');
+          if (parts.length === 2) { sx = parseInt(parts[0])||720; sy = parseInt(parts[1])||1600; }
+        }
+        touchStart = { x: Math.round((e.clientX - rect.left) * (sx / rect.width)), y: Math.round((e.clientY - rect.top) * (sy / rect.height)) };
+        touchStartTime = Date.now();
+      });
+      cvsEl.addEventListener('mouseup', function(e) {
+        if (!touchStart) return;
+        var rect = cvsEl.getBoundingClientRect();
+        var sx = devW, sy = devH;
+        if (d.resolution) {
+          var parts = d.resolution.split('x');
+          if (parts.length === 2) { sx = parseInt(parts[0])||720; sy = parseInt(parts[1])||1600; }
+        }
+        var ox = JSON.parse(localStorage.getItem('nftouch_cal_' + devId) || '{}');
+        var endX = Math.round((e.clientX - rect.left) * (sx / rect.width));
+        var endY = Math.round((e.clientY - rect.top) * (sy / rect.height));
+        var dx = Math.abs(endX - touchStart.x);
+        var dy = Math.abs(endY - touchStart.y);
+        if (dx < 8 && dy < 8 && Date.now() - touchStartTime < 400) {
+          send({type: 'cmd_tap', device_id: devId, x: touchStart.x - (ox.x||0), y: touchStart.y - (ox.y||0)});
+        } else {
+          send({type: 'cmd_swipe', device_id: devId, x1: touchStart.x - (ox.x||0), y1: touchStart.y - (ox.y||0), x2: endX - (ox.x||0), y2: endY - (ox.y||0), duration: Math.min(Date.now() - touchStartTime, 1000)});
+        }
+        touchStart = null;
+      });
+    })(d.id, cvs);
+    deviceCanvases[d.id] = {canvas: cvs, ctx: cvs.getContext('2d'), img: new Image(), devW: 720, devH: 1600};
+  });
+  countEl.textContent = devices.length + ' 台设备';
+}
+
 function logout() {
   fetch('/api/logout', {method:'POST'}).finally(() => location.href = '/login.html');
 }
@@ -537,6 +648,7 @@ function showDeviceSettings(id) {
       型号: ${escHtml(dev.model||'-')} · 分辨率: ${escHtml(dev.resolution||'-')} · 电量: ${dev.battery}%<br>
       状态: ${dev.status==='online'?'🟢 在线':'🔴 离线'} · 当前校准: X=${s.x||0} Y=${s.y||0}
     </div>
+    ${dev.status==='offline' ? '<div style="font-size:11px;color:var(--offline);margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px;">⚠ 请在手机上打开 NFTouch 应用即可自动重连。<br>如果仍无法连接，点 × 删掉后重新配对。</div>' : ''}
     <div style="font-size:11px;color:var(--accent);margin-bottom:8px;">💡 鼠标悬停在画面上可看到实时坐标</div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;">
       <button class="quick-btn" onclick="nudge(-1,0)" style="padding:4px 8px;">◀</button>

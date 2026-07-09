@@ -228,6 +228,7 @@ type deviceConn struct {
 type dashConn struct {
 	conn     *websocket.Conn
 	deviceID string
+	watchAll bool
 	mu       sync.Mutex
 }
 
@@ -298,7 +299,7 @@ func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
 
 	header, _ := json.Marshal(WSMessage{Type: "frame", DeviceID: deviceID})
 	for dc := range h.dash {
-		if dc.deviceID == deviceID || dc.deviceID == "" {
+		if dc.deviceID == deviceID || dc.watchAll {
 			dc.mu.Lock()
 			dc.conn.Write(bgCtx, websocket.MessageText, header)
 			dc.conn.Write(bgCtx, websocket.MessageBinary, frameData)
@@ -478,7 +479,15 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 		switch msg.Type {
 		case "watch":
 			dc.deviceID = msg.DeviceID
+			dc.watchAll = false
 			log.Printf("[ws/dash] watching device: %s", msg.DeviceID)
+		case "watch_all":
+			dc.watchAll = true
+			log.Printf("[ws/dash] watching all devices")
+		case "watch_one":
+			dc.watchAll = false
+			dc.deviceID = msg.DeviceID
+			log.Printf("[ws/dash] watching one: %s", msg.DeviceID)
 		case "cmd_tap", "cmd_swipe", "cmd_input", "cmd_task", "cmd_key":
 			if msg.DeviceID == "" {
 				msg.DeviceID = dc.deviceID
