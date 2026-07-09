@@ -131,7 +131,7 @@ func setDeviceOffline(deviceID string) error {
 }
 
 func getDevices() ([]Device, error) {
-	rows, err := db.Query(`SELECT id, user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
+	rows, err := db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func getDevices() ([]Device, error) {
 func getDevice(id string) (*Device, error) {
 	var d Device
 	var lastSeen sql.NullString
-	err := db.QueryRow(`SELECT id, user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
+	err := db.QueryRow(`SELECT id, COALESCE(user_id,'') as user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
 		Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -176,7 +176,7 @@ func verifyDeviceToken(deviceID, token string) (*Device, error) {
 	var d Device
 	var tokenHash string
 	var lastSeen sql.NullString
-	err := db.QueryRow("SELECT id, user_id, name, token_hash, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?", deviceID).
+	err := db.QueryRow("SELECT id, COALESCE(user_id,'') as user_id, name, token_hash, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?", deviceID).
 		Scan(&d.ID, &d.UserID, &d.Name, &tokenHash, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
 	if err == sql.ErrNoRows {
 		log.Printf("[auth] device %s not found in DB", deviceID)
@@ -870,6 +870,7 @@ func handleGetDevices(w http.ResponseWriter, r *http.Request) {
 	u := getUserFromRequest(r)
 	devices, err := getDevices()
 	if err != nil {
+		log.Printf("[api] getDevices error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
@@ -1254,6 +1255,7 @@ func main() {
 
 	// Initialize admin user
 	adminEmail := envOrDefault("ADMIN_EMAIL", "admin@nftouch.local")
+	if !strings.Contains(adminEmail, "@") { log.Fatalf("Invalid ADMIN_EMAIL: %s", adminEmail) }
 	adminPass := envOrDefault("ADMIN_PASSWORD", "nf123456")
 	if existing, _ := getUserByEmail(adminEmail); existing == nil {
 		createUserDB(adminEmail, adminPass, "Admin", "admin", "", 999)
