@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"strings"
 	"time"
 
 	"nhooyr.io/websocket"
@@ -827,6 +828,11 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
 		if checkSession(r) || r.URL.Query().Get("key") == adminKey {
+		// CSS/JS 不需要鉴权
+		if strings.HasSuffix(r.URL.Path, ".css") || strings.HasSuffix(r.URL.Path, ".js") {
+			fs.ServeHTTP(w, r)
+			return
+		}
 			fs.ServeHTTP(w, r)
 			return
 		}
