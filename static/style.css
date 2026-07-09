@@ -35,7 +35,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 #screen-area { flex:1; display:flex; align-items:center; justify-content:center; background:#000; position:relative; overflow:hidden; }
 #screen-area .placeholder { color:var(--text2); font-size:14px; text-align:center; }
 #screen-area .placeholder svg { display:block; margin:0 auto 12px; opacity:.3; }
-#screen-canvas { cursor:crosshair; }
+#screen-canvas { cursor:default; }
 #control-bar { background:var(--surface); border-top:1px solid var(--border); padding:12px 20px; display:flex; gap:12px; align-items:center; }
 #task-input { flex:1; padding:10px 14px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:13px; outline:none; transition:border .15s; }
 #task-input:focus { border-color:var(--accent); }
@@ -54,8 +54,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 .modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:100; }
 .modal { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:28px; width:360px; }
 .modal h3 { font-size:16px; margin-bottom:20px; display:flex; align-items:center; gap:8px; }
-.modal input { width:100%; padding:12px 16px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:18px; text-align:center; letter-spacing:8px; outline:none; margin-bottom:16px; }
+.modal input { width:100%; padding:12px 16px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:14px; outline:none; margin-bottom:8px; }
 .modal input:focus { border-color:var(--accent); }
+#code-input { font-size:18px; text-align:center; letter-spacing:8px; }
 .modal .actions { display:flex; gap:8px; justify-content:flex-end; }
 .modal .actions button { padding:10px 20px; border-radius:var(--radius); cursor:pointer; font-size:13px; font-weight:500; border:none; }
 .modal .btn-cancel { background:var(--surface2); color:var(--text); }

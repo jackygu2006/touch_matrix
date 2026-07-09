@@ -15,6 +15,7 @@
         <button onclick="logout()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;">登出</button>
       </div>
     </div>
+    <div id="user-info" style="padding:4px 20px 8px 20px;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border);display:none;"></div>
     <div id="device-list"></div>
     <div id="sort-bar" style="padding:4px 8px;display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);">
       <button onclick="sortDevices('id')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">ID <span id="sort-id-dir"></span></button>
@@ -101,6 +102,38 @@
     <div class="actions" style="margin-top:12px;">
       <button class="quick-btn" id="cal-start-btn" onclick="startCalibration()">开始校准</button>
       <button class="btn-cancel" onclick="document.getElementById('dev-settings-modal').classList.add('hidden')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="admin-modal">
+  <div class="modal" style="width:600px;max-height:80vh;overflow-y:auto;">
+    <h3>用户管理 <button class="quick-btn" onclick="showNewUserDialog()" style="margin-left:12px;">+ 新建用户</button></h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;" id="admin-user-table">
+      <tr style="color:var(--text2);"><th style="text-align:left;padding:8px;">邮箱</th><th>角色</th><th>设备配额</th><th>状态</th><th>操作</th></tr>
+    </table>
+    <div class="actions" style="margin-top:12px;">
+      <button class="btn-cancel" onclick="document.getElementById('admin-modal').classList.add('hidden')">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="edit-user-modal">
+  <div class="modal" style="width:380px;">
+    <h3 id="edit-user-title">编辑用户</h3>
+    <label id="eu-email-label" style="font-size:12px;color:var(--text2);">邮箱</label>
+    <input id="eu-email" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="user@example.com">
+    <label id="eu-nick-label" style="font-size:12px;color:var(--text2);">昵称</label>
+    <input id="eu-nickname" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="显示名称">
+    <label style="font-size:12px;color:var(--text2);">密码<span id="eu-pw-hint" style="color:var(--text2);">（留空不修改）</span></label>
+    <input id="eu-password" type="password" style="font-size:14px;padding:8px 12px;margin-bottom:8px;">
+    <label style="font-size:12px;color:var(--text2);">设备配额</label>
+    <input id="eu-quota" type="number" min="1" style="font-size:14px;padding:8px 12px;margin-bottom:12px;width:80px;">
+    <input type="hidden" id="eu-id">
+    <div class="error hidden" id="eu-error" style="margin-bottom:8px;"></div>
+    <div class="actions">
+      <button class="btn-cancel" onclick="document.getElementById('edit-user-modal').classList.add('hidden')">取消</button>
+      <button class="btn-confirm" onclick="saveEditUser()">保存</button>
     </div>
   </div>
 </div>

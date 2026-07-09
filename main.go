@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"nhooyr.io/websocket"
 	_ "modernc.org/sqlite"
@@ -29,6 +30,7 @@ var db *sql.DB
 
 type Device struct {
 	ID         string  `json:"id"`
+	UserID     string  `json:"user_id,omitempty"`
 	Name       string  `json:"name"`
 	TokenHash  string  `json:"-"`
 	Status     string  `json:"status"`
@@ -38,6 +40,23 @@ type Device struct {
 	Battery    int     `json:"battery"`
 	LastSeen   *string `json:"last_seen"`
 	CreatedAt  string  `json:"created_at"`
+}
+
+type User struct {
+	ID         string `json:"id"`
+	Email      string `json:"email"`
+	Password   string `json:"-"`
+	Nickname   string `json:"nickname"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	MaxDevices int    `json:"max_devices"`
+	CreatedAt  string `json:"created_at"`
+}
+
+type DeviceCode struct {
+	Code      string `json:"code"`
+	DeviceID  string `json:"device_id"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 func initDB(dbPath string) error {
@@ -69,7 +88,17 @@ func initDB(dbPath string) error {
 			expires_at  TEXT NOT NULL
 		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Users table
+	db.Exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password TEXT NOT NULL, nickname TEXT DEFAULT '', role TEXT DEFAULT 'user', status TEXT DEFAULT 'active', max_devices INTEGER DEFAULT 5, created_by TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))")
+
+	// Add user_id to devices
+	db.Exec("ALTER TABLE devices ADD COLUMN user_id TEXT REFERENCES users(id)")
+
+	return nil
 }
 
 func upsertDevice(d Device) error {
@@ -102,7 +131,7 @@ func setDeviceOffline(deviceID string) error {
 }
 
 func getDevices() ([]Device, error) {
-	rows, err := db.Query(`SELECT id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
+	rows, err := db.Query(`SELECT id, user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +141,7 @@ func getDevices() ([]Device, error) {
 	for rows.Next() {
 		var d Device
 		var lastSeen sql.NullString
-		if err := rows.Scan(&d.ID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt); err != nil {
 			return nil, err
 		}
 		if lastSeen.Valid {
@@ -129,8 +158,8 @@ func getDevices() ([]Device, error) {
 func getDevice(id string) (*Device, error) {
 	var d Device
 	var lastSeen sql.NullString
-	err := db.QueryRow(`SELECT id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
-		Scan(&d.ID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
+	err := db.QueryRow(`SELECT id, user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
+		Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -147,15 +176,22 @@ func verifyDeviceToken(deviceID, token string) (*Device, error) {
 	var d Device
 	var tokenHash string
 	var lastSeen sql.NullString
-	err := db.QueryRow("SELECT id, name, token_hash, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?", deviceID).
-		Scan(&d.ID, &d.Name, &tokenHash, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
+	err := db.QueryRow("SELECT id, user_id, name, token_hash, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?", deviceID).
+		Scan(&d.ID, &d.UserID, &d.Name, &tokenHash, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
 	if err == sql.ErrNoRows {
+		log.Printf("[auth] device %s not found in DB", deviceID)
 		return nil, nil
 	}
 	if err != nil {
+		log.Printf("[auth] DB error: %v", err)
 		return nil, err
 	}
+	if tokenHash == "" {
+		log.Printf("[auth] device %s has empty token_hash", deviceID)
+		return nil, nil
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(tokenHash), []byte(token)); err != nil {
+		log.Printf("[auth] bcrypt mismatch for device %s: %v", deviceID, err)
 		return nil, nil
 	}
 	d.TokenHash = tokenHash
@@ -163,6 +199,60 @@ func verifyDeviceToken(deviceID, token string) (*Device, error) {
 		d.LastSeen = &lastSeen.String
 	}
 	return &d, nil
+}
+
+func getUserByID(id string) (*User, error) {
+	var u User
+	err := db.QueryRow("SELECT id, email, password, nickname, role, status, max_devices, created_at FROM users WHERE id=?", id).
+		Scan(&u.ID, &u.Email, &u.Password, &u.Nickname, &u.Role, &u.Status, &u.MaxDevices, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &u, err
+}
+
+func getUserByEmail(email string) (*User, error) {
+	var u User
+	err := db.QueryRow("SELECT id, email, password, nickname, role, status, max_devices, created_at FROM users WHERE email=?", email).
+		Scan(&u.ID, &u.Email, &u.Password, &u.Nickname, &u.Role, &u.Status, &u.MaxDevices, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return &u, err
+}
+
+func createUserDB(email, password, nickname, role, createdBy string, maxDevices int) (string, error) {
+	b := make([]byte, 8)
+	rand.Read(b)
+	id := hex.EncodeToString(b)
+	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	_, err := db.Exec("INSERT INTO users (id,email,password,nickname,role,max_devices,created_by) VALUES (?,?,?,?,?,?,?)",
+		id, email, string(hash), nickname, role, maxDevices, createdBy)
+	return id, err
+}
+
+func getUsersAll() ([]User, error) {
+	rows, err := db.Query("SELECT id, email, nickname, role, status, max_devices, created_at FROM users ORDER BY created_at ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var users []User
+	for rows.Next() {
+		var u User
+		rows.Scan(&u.ID, &u.Email, &u.Nickname, &u.Role, &u.Status, &u.MaxDevices, &u.CreatedAt)
+		users = append(users, u)
+	}
+	if users == nil {
+		users = []User{}
+	}
+	return users, nil
+}
+
+func countDevicesForUser(userID string) int {
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM devices WHERE user_id=?", userID).Scan(&count)
+	return count
 }
 
 func createPairingCode(deviceID string) (string, error) {
@@ -255,6 +345,7 @@ type dashConn struct {
 	conn     *websocket.Conn
 	deviceID string
 	watchAll bool
+	userID   string
 	mu       sync.Mutex
 }
 
@@ -345,6 +436,17 @@ func (h *Hub) broadcastToDash(msg WSMessage) {
 	}
 }
 
+func filterDevicesForUser(dc *dashConn, devices []Device) []Device {
+	var result []Device
+	for _, d := range devices {
+		if dc.userID == "" || d.UserID == "" || d.UserID == dc.userID {
+			result = append(result, d)
+		}
+	}
+	if result == nil { result = []Device{} }
+	return result
+}
+
 func (h *Hub) broadcastDeviceList() {
 	devices, err := getDevices()
 	if err != nil {
@@ -352,10 +454,18 @@ func (h *Hub) broadcastDeviceList() {
 		return
 	}
 
-	msg, _ := json.Marshal(WSMessage{Type: "device_list", Devices: devices})
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for dc := range h.dash {
+		// Filter by user
+		var userDevices []Device
+		for _, d := range devices {
+			if dc.userID == "" || d.UserID == "" || d.UserID == dc.userID {
+				userDevices = append(userDevices, d)
+			}
+		}
+		if userDevices == nil { userDevices = []Device{} }
+		msg, _ := json.Marshal(WSMessage{Type: "device_list", Devices: userDevices})
 		dc.mu.Lock()
 		dc.conn.Write(bgCtx, websocket.MessageText, msg)
 		dc.mu.Unlock()
@@ -393,6 +503,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dev, err := verifyDeviceToken(authMsg.DeviceID, authMsg.Token)
+	log.Printf("[ws/device] auth attempt: deviceID=%s tokenLen=%d", authMsg.DeviceID, len(authMsg.Token))
 	if err != nil || dev == nil {
 		c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid token"}))
 		log.Printf("[ws/device] auth failed: token not found")
@@ -467,9 +578,21 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDashWS(w http.ResponseWriter, r *http.Request) {
-	if !checkSession(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+	// Check JWT from cookie/header, or token query param
+	if getUserFromRequest(r) == nil {
+		token := r.URL.Query().Get("token")
+		if token != "" {
+			_, err := validateJWT(token)
+			if err == nil {
+				// Valid JWT - allow connection
+			} else {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		} else if !checkSession(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
@@ -481,12 +604,14 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close(websocket.StatusInternalError, "")
 
+	u := getUserFromRequest(r)
 	dc := &dashConn{conn: c}
+	if u != nil { dc.userID = u.ID }
 	hub.registerDash(dc)
 	defer hub.unregisterDash(dc)
 
 	devices, _ := getDevices()
-	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: devices}))
+	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
 
 	// 定期同步设备状态（10s），修正可能的掉帧
 	go func() {
@@ -495,7 +620,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 		for range ticker.C {
 			dc.mu.Lock()
 			devs, _ := getDevices()
-			err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: devs}))
+			err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devs)}))
 			dc.mu.Unlock()
 			if err != nil { return }
 		}
@@ -538,7 +663,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 			}
 		case "refresh":
 			devices, _ := getDevices()
-			c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: devices}))
+			c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
 		}
 	}
 }
@@ -552,6 +677,132 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	u, _ := getUserByEmail(req.Email)
+	if u == nil || u.Status == "disabled" {
+		writeJSON(w, 401, map[string]string{"error": "user not found or disabled"})
+		return
+	}
+	if bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(req.Password)) != nil {
+		writeJSON(w, 401, map[string]string{"error": "wrong password"})
+		return
+	}
+	token, _ := generateJWT(u)
+	http.SetCookie(w, &http.Cookie{
+		Name: "nftouch_token", Value: token, Path: "/",
+		HttpOnly: false, MaxAge: 604800,
+	})
+	writeJSON(w, 200, map[string]interface{}{
+		"token": token, "email": u.Email, "nickname": u.Nickname, "role": u.Role,
+	})
+}
+
+func handleAuthCheckNew(w http.ResponseWriter, r *http.Request) {
+	u := getUserFromRequest(r)
+	if u != nil && u.Status == "active" {
+		writeJSON(w, 200, map[string]interface{}{
+			"status": "ok", "email": u.Email, "nickname": u.Nickname, "role": u.Role, "max_devices": u.MaxDevices,
+		})
+	} else {
+		writeJSON(w, 401, map[string]string{"status": "unauthorized"})
+	}
+}
+
+// Admin: list users
+func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		users, _ := getUsersAll()
+		writeJSON(w, 200, users)
+		return
+	}
+	// POST: create user
+	var req struct {
+		Email      string `json:"email"`
+		Password   string `json:"password"`
+		Nickname   string `json:"nickname"`
+		MaxDevices int    `json:"max_devices"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.Email == "" || req.Password == "" {
+		writeJSON(w, 400, map[string]string{"error": "email and password required"})
+		return
+	}
+	if req.MaxDevices <= 0 { req.MaxDevices = 5 }
+	if existing, _ := getUserByEmail(req.Email); existing != nil {
+		writeJSON(w, 400, map[string]string{"error": "email already exists"})
+		return
+	}
+	id, err := createUserDB(req.Email, req.Password, req.Nickname, "user", "", req.MaxDevices)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"id": id, "status": "created"})
+}
+
+func handleAdminUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	u, _ := getUserByID(id)
+	if u == nil {
+		writeJSON(w, 404, map[string]string{"error": "not found"})
+		return
+	}
+	switch r.Method {
+	case "PUT":
+		var req struct {
+			Password   string `json:"password"`
+			Nickname   string `json:"nickname"`
+			MaxDevices int    `json:"max_devices"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Password != "" {
+			hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+			db.Exec("UPDATE users SET password=? WHERE id=?", string(hash), id)
+		}
+		if req.Nickname != "" {
+			db.Exec("UPDATE users SET nickname=? WHERE id=?", req.Nickname, id)
+		}
+		if req.MaxDevices > 0 {
+			db.Exec("UPDATE users SET max_devices=? WHERE id=?", req.MaxDevices, id)
+		}
+		writeJSON(w, 200, map[string]string{"status": "updated"})
+	case "DELETE":
+		// Also delete user's devices
+		db.Exec("DELETE FROM devices WHERE user_id=?", id)
+		db.Exec("DELETE FROM users WHERE id=? AND role!='admin'", id)
+		writeJSON(w, 200, map[string]string{"status": "deleted"})
+	default:
+		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
+	}
+}
+
+func handleAdminUserToggle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	u, _ := getUserByID(id)
+	if u == nil || u.Role == "admin" {
+		writeJSON(w, 400, map[string]string{"error": "cannot toggle admin"})
+		return
+	}
+	newStatus := "active"
+	if u.Status == "active" { newStatus = "disabled" }
+	db.Exec("UPDATE users SET status=? WHERE id=?", newStatus, id)
+	writeJSON(w, 200, map[string]string{"status": newStatus})
+}
+
+func handleProfile(w http.ResponseWriter, r *http.Request) {
+	u := getUserFromRequest(r)
+	if u == nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	writeJSON(w, 200, u)
 }
 
 func handleBind(w http.ResponseWriter, r *http.Request) {
@@ -578,10 +829,30 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Quota check
+	u := getUserFromRequest(r)
+	if u != nil && u.Role != "admin" {
+		current := countDevicesForUser(u.ID)
+		if current >= u.MaxDevices {
+			writeJSON(w, 400, map[string]string{"error": fmt.Sprintf("设备配额已满（%d/%d）", current, u.MaxDevices)})
+			return
+		}
+	}
+
 	token := generateToken()
 	tokenHash := hashToken(token)
 
-	_, err = db.Exec(`UPDATE devices SET token_hash=? WHERE id=?`, tokenHash, deviceID)
+	userID := ""
+	if u != nil { userID = u.ID }
+
+	// 检查设备是否已被其他用户绑定
+	existing, _ := getDevice(deviceID)
+	if existing != nil && existing.UserID != "" && existing.UserID != userID {
+		writeJSON(w, 400, map[string]string{"error": "设备已被其他用户绑定，请在其他账户中删除并解绑该设备后继续绑定"})
+		return
+	}
+
+	_, err = db.Exec(`UPDATE devices SET token_hash=?, user_id=? WHERE id=?`, tokenHash, userID, deviceID)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
@@ -596,10 +867,21 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetDevices(w http.ResponseWriter, r *http.Request) {
+	u := getUserFromRequest(r)
 	devices, err := getDevices()
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
+	}
+	// Filter: admin sees all, users see only their own
+	if u != nil && u.Role != "admin" {
+		var filtered []Device
+		for _, d := range devices {
+			if d.UserID == u.ID {
+				filtered = append(filtered, d)
+			}
+		}
+		devices = filtered
 	}
 	writeJSON(w, 200, devices)
 }
@@ -716,6 +998,69 @@ func mustJSON(v interface{}) []byte {
 }
 
 // ============================================================
+// ============================================================
+// JWT Auth
+// ============================================================
+var jwtSecret []byte
+
+type JWTClaims struct {
+	UserID string `json:"uid"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	jwt.RegisteredClaims
+}
+
+func generateJWT(user *User) (string, error) {
+	claims := JWTClaims{
+		UserID: user.ID, Email: user.Email, Role: user.Role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
+}
+
+func validateJWT(tokenStr string) (*JWTClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &JWTClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	})
+	if err != nil || !token.Valid {
+		return nil, err
+	}
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid claims")
+	}
+	return claims, nil
+}
+
+func jwtFromRequest(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimPrefix(auth, "Bearer ")
+	}
+	cookie, _ := r.Cookie("nftouch_token")
+	if cookie != nil {
+		return cookie.Value
+	}
+	return ""
+}
+
+func getUserFromRequest(r *http.Request) *User {
+	token := jwtFromRequest(r)
+	if token == "" {
+		return nil
+	}
+	claims, err := validateJWT(token)
+	if err != nil {
+		return nil
+	}
+	u, _ := getUserByID(claims.UserID)
+	return u
+}
+
 // Session / Auth
 // ============================================================
 func createSessionToken() string {
@@ -806,8 +1151,30 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !checkSession(r) {
+		if getUserFromRequest(r) == nil && !checkSession(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
+}
+
+func adminOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := getUserFromRequest(r)
+		if u == nil || u.Role != "admin" {
+			writeJSON(w, 403, map[string]string{"error": "admin only"})
+			return
+		}
+		next(w, r)
+	}
+}
+
+func jwtAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := getUserFromRequest(r)
+		if u == nil || u.Status != "active" {
+			writeJSON(w, 401, map[string]string{"error": "unauthorized"})
 			return
 		}
 		next(w, r)
@@ -846,12 +1213,18 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
-		if checkSession(r) {
 		// CSS/JS 不需要鉴权
 		if strings.HasSuffix(r.URL.Path, ".css") || strings.HasSuffix(r.URL.Path, ".js") {
 			fs.ServeHTTP(w, r)
 			return
 		}
+		// JWT token (new auth)
+		if getUserFromRequest(r) != nil {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		// Old session cookie (compat)
+		if checkSession(r) {
 			fs.ServeHTTP(w, r)
 			return
 		}
@@ -860,6 +1233,7 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 }
 
 func main() {
+	jwtSecret = []byte(envOrDefault("JWT_SECRET", "change-me"))
 	adminPassword = envOrDefault("ADMIN_PASSWORD", "nf123456")
 	sessionSecret = envOrDefault("SESSION_SECRET", "change-me-please")
 	listenAddr = envOrDefault("LISTEN_ADDR", ":8443")
@@ -877,6 +1251,15 @@ func main() {
 		log.Fatalf("Failed to init DB: %v", err)
 	}
 	defer db.Close()
+
+	// Initialize admin user
+	adminEmail := envOrDefault("ADMIN_EMAIL", "admin@nftouch.local")
+	adminPass := envOrDefault("ADMIN_PASSWORD", "nf123456")
+	if existing, _ := getUserByEmail(adminEmail); existing == nil {
+		createUserDB(adminEmail, adminPass, "Admin", "admin", "", 999)
+		log.Printf("Admin user created: %s", adminEmail)
+	}
+
 	log.Printf("Database: %s", dbPath)
 
 	go func() {
@@ -897,7 +1280,15 @@ func main() {
 
 	mux.HandleFunc("POST /api/login", corsMiddleware(handleLogin))
 	mux.HandleFunc("POST /api/logout", handleLogout)
-	mux.HandleFunc("GET /api/auth-check", handleAuthCheck)
+	mux.HandleFunc("POST /api/auth/login", corsMiddleware(handleAuthLogin))
+	mux.HandleFunc("GET /api/auth/check", corsMiddleware(handleAuthCheckNew))
+	mux.HandleFunc("GET /api/profile", corsMiddleware(jwtAuth(handleProfile)))
+	// Admin routes
+	mux.HandleFunc("GET /api/admin/users", corsMiddleware(jwtAuth(adminOnly(handleAdminUsers))))
+	mux.HandleFunc("POST /api/admin/users", corsMiddleware(jwtAuth(adminOnly(handleAdminUsers))))
+	mux.HandleFunc("PUT /api/admin/users/{id}", corsMiddleware(jwtAuth(adminOnly(handleAdminUser))))
+	mux.HandleFunc("DELETE /api/admin/users/{id}", corsMiddleware(jwtAuth(adminOnly(handleAdminUser))))
+	mux.HandleFunc("PUT /api/admin/users/{id}/toggle", corsMiddleware(jwtAuth(adminOnly(handleAdminUserToggle))))
 	mux.HandleFunc("POST /api/bind", api(handleBind))
 	mux.HandleFunc("GET /api/devices", api(handleGetDevices))
 	mux.HandleFunc("GET /api/devices/{id}", api(handleGetDevice))
