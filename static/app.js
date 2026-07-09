@@ -211,7 +211,9 @@ function selectDevice(id) {
   var s = JSON.parse(localStorage.getItem('nftouch_cal_' + id) || '{}');
   offsetX = s.x || 0;
   offsetY = s.y || 0;
-  send({type: 'watch', device_id: id});
+  // 如果在 Grid 模式，退出并切换到单设备模式
+  if (gridMode) toggleGrid();
+  send({type: 'watch_one', device_id: id});
   renderDeviceList();
   updateDeviceStatus();
 }
