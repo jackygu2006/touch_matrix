@@ -2,20 +2,19 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
+	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"sync"
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"nhooyr.io/websocket"
 	_ "modernc.org/sqlite"
 )
@@ -144,17 +143,22 @@ func getDevice(id string) (*Device, error) {
 	return &d, nil
 }
 
-func getDeviceByTokenHash(hash string) (*Device, error) {
+func verifyDeviceToken(deviceID, token string) (*Device, error) {
 	var d Device
+	var tokenHash string
 	var lastSeen sql.NullString
-	err := db.QueryRow(`SELECT id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE token_hash=?`, hash).
-		Scan(&d.ID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
+	err := db.QueryRow("SELECT id, name, token_hash, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?", deviceID).
+		Scan(&d.ID, &d.Name, &tokenHash, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	if err := bcrypt.CompareHashAndPassword([]byte(tokenHash), []byte(token)); err != nil {
+		return nil, nil
+	}
+	d.TokenHash = tokenHash
 	if lastSeen.Valid {
 		d.LastSeen = &lastSeen.String
 	}
@@ -168,6 +172,19 @@ func createPairingCode(deviceID string) (string, error) {
 	expiresAt := time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339)
 	_, err := db.Exec(`INSERT INTO device_codes (code, device_id, expires_at) VALUES (?, ?, ?)`, code, deviceID, expiresAt)
 	return code, err
+}
+
+var pairingRateLimit = sync.Map{}
+
+func checkPairingRateLimit(code string) bool {
+	now := time.Now().Unix()
+	val, _ := pairingRateLimit.LoadOrStore(code, now)
+	lastTime := val.(int64)
+	if now-lastTime > 60 {
+		pairingRateLimit.Store(code, now)
+		return true
+	}
+	return false
 }
 
 func validatePairingCode(code string) (string, error) {
@@ -187,13 +204,21 @@ func cleanupExpiredCodes() {
 }
 
 func generateCode() string {
-	code := rand.Intn(900000) + 100000
+	b := make([]byte, 4)
+	rand.Read(b)
+	code := int(b[0])<<24 | int(b[1])<<16 | int(b[2])<<8 | int(b[3])
+	if code < 0 { code = -code }
+	code = code%900000 + 100000
 	return fmt.Sprintf("%d", code)
 }
 
 func hashToken(token string) string {
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("bcrypt error: %v", err)
+		return ""
+	}
+	return string(hash)
 }
 
 // ============================================================
@@ -367,8 +392,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokenHash := hashToken(authMsg.Token)
-	dev, err := getDeviceByTokenHash(tokenHash)
+	dev, err := verifyDeviceToken(authMsg.DeviceID, authMsg.Token)
 	if err != nil || dev == nil {
 		c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid token"}))
 		log.Printf("[ws/device] auth failed: token not found")
@@ -391,7 +415,6 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 		dev.Resolution = info.Resolution
 		dev.Battery = info.Battery
 	}
-	dev.TokenHash = tokenHash
 	upsertDevice(*dev)
 
 	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_ok"}))
@@ -444,7 +467,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleDashWS(w http.ResponseWriter, r *http.Request) {
-	if !checkSession(r) && !checkAdminKey(r.URL.Query().Get("key")) {
+	if !checkSession(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -524,9 +547,6 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 // REST API Handlers
 // ============================================================
 
-func checkAdminKey(key string) bool {
-	return subtle.ConstantTimeCompare([]byte(key), []byte(adminKey)) == 1
-}
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -786,7 +806,7 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !checkSession(r) && !checkAdminKey(r.URL.Query().Get("key")) {
+		if !checkSession(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -813,7 +833,6 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 var (
 	staticDir      string
-	adminKey       string
 	adminPassword  string
 	listenAddr     string
 	tlsCert        string
@@ -827,7 +846,7 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
-		if checkSession(r) || r.URL.Query().Get("key") == adminKey {
+		if checkSession(r) {
 		// CSS/JS 不需要鉴权
 		if strings.HasSuffix(r.URL.Path, ".css") || strings.HasSuffix(r.URL.Path, ".js") {
 			fs.ServeHTTP(w, r)
@@ -841,7 +860,6 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 }
 
 func main() {
-	adminKey = envOrDefault("ADMIN_KEY", "admin123")
 	adminPassword = envOrDefault("ADMIN_PASSWORD", "nf123456")
 	sessionSecret = envOrDefault("SESSION_SECRET", "change-me-please")
 	listenAddr = envOrDefault("LISTEN_ADDR", ":8443")
@@ -852,7 +870,7 @@ func main() {
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.Printf("=== NFTouch Server MVP ===")
-	log.Printf("Admin key: %s", adminKey)
+	log.Printf("Admin password configured")
 	log.Printf("Listen: %s", listenAddr)
 
 	if err := initDB(dbPath); err != nil {

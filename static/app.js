@@ -27,6 +27,16 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
   connect();
 })();
 
+function toast(msg, style) {
+  var el = document.getElementById('task-msg');
+  el.style.display = 'block';
+  el.textContent = msg;
+  el.style.color = style === 'error' ? '#f87171' : style === 'success' ? '#22c55e' : 'var(--text2)';
+  clearTimeout(el._timeout);
+  el._timeout = setTimeout(function() { el.style.display = 'none'; }, 3000);
+}
+
+
 // ============================================================
 // WebSocket
 // ============================================================
@@ -59,7 +69,7 @@ function connect() {
           showTaskMsg(msg.text);
           break;
         case 'error':
-          alert('错误: ' + msg.reason);
+          toast('错误: ' + msg.reason, 'error');
           break;
       }
     } else if (e.data instanceof ArrayBuffer) {
@@ -68,7 +78,7 @@ function connect() {
         // Grid mode: render to device canvas
         if (gridMode && deviceCanvases[fdevId]) {
           var dc = deviceCanvases[fdevId];
-          const blob = new Blob([e.data], {type: 'image/jpeg'});
+          const blob = new Blob([e.data.byteLength > 4 && new Uint8Array(e.data)[0] !== 0xFF ? e.data.slice(4) : e.data], {type: 'image/jpeg'});
           const url = URL.createObjectURL(blob);
           dc.img.onload = function() {
             dc.canvas.width = dc.img.naturalWidth;
@@ -81,7 +91,7 @@ function connect() {
         // Single mode: render to main canvas
         if (!gridMode && fdevId === activeDeviceId) {
         const frameDevId = pendingFrameHeader.device_id;
-        const blob = new Blob([e.data], {type: 'image/jpeg'});
+        const blob = new Blob([e.data.byteLength > 4 && new Uint8Array(e.data)[0] !== 0xFF ? e.data.slice(4) : e.data], {type: 'image/jpeg'});
         const url = URL.createObjectURL(blob);
         img.onload = () => {
           devW = img.naturalWidth;
@@ -306,7 +316,7 @@ canvas.addEventListener('touchend', (e) => {
 // Control Bar
 // ============================================================
 function sendKey(key) {
-  if (!activeDeviceId) return alert('请先选择一个设备');
+  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
   send({type: 'cmd_key', device_id: activeDeviceId, key: key});
 }
 
@@ -438,7 +448,7 @@ function logout() {
 }
 
 function sendText() {
-  if (!activeDeviceId) return alert('请先选择一个设备');
+  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
   const input = document.getElementById('text-input');
   const text = input.value;
   if (!text) return;
@@ -448,7 +458,7 @@ function sendText() {
 }
 
 function sendTask() {
-  if (!activeDeviceId) return alert('请先选择一个设备');
+  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
   const input = document.getElementById('task-input');
   const prompt = input.value.trim();
   if (!prompt) return;
@@ -526,7 +536,7 @@ async function doBind() {
 
 function copyToken() {
   navigator.clipboard.writeText(lastBindToken).then(() => {
-    alert('Token 已复制到剪贴板！');
+    toast('Token 已复制到剪贴板！', 'success');
   }).catch(() => {
     // Fallback: select text manually
     const el = document.getElementById('bind-token');
