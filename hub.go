@@ -247,6 +247,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID = dev.ID
+	dc.lastFrame = time.Now() // 初始化为当前时间，避免误报"无画面"
 	dc.deviceID = deviceID
 
 	if authMsg.Info != nil {
