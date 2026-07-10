@@ -37,7 +37,7 @@ function renderDeviceList() {
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
       <div class="dot ${d.status === 'online' ? 'online' : 'offline'}"></div>
       <div class="info">
-        <div class="name">${escHtml(d.name || d.id)}${d.status === 'offline' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : ''}</div>
+        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status === 'offline' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : ''}</div>
         <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · 电量 ${d.battery}%</div>
       </div>
       <span onclick="event.stopPropagation();showDeviceSettings('${d.id}')" style="cursor:pointer;opacity:.5;font-size:14px;padding:4px;" title="设备设置">⚙</span>
@@ -50,7 +50,7 @@ function renderDeviceList() {
     const dev = devices.find(d => d.id === activeDeviceId);
     if (!dev || dev.status === 'offline') {
       document.getElementById('task-msg').style.display = 'block';
-      document.getElementById('task-msg').textContent = '⚠️ 设备离线，请在手机上打开 NFTouch 应用即可自动重连';
+      var dev = devices.find(d => d.id === activeDeviceId); document.getElementById('task-msg').textContent = dev && dev.status === 'unbound' ? '⚠️ 设备已解绑，请重新配对' : '⚠️ 设备离线，请在手机上打开 NFTouch 应用即可自动重连';
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
@@ -92,7 +92,7 @@ function updateDeviceStatus() {
   if (dev.status === 'online') {
     el.textContent = '已连接 · 设备在线 🟢';
   } else {
-    el.textContent = '已连接 · 设备离线 🔴';
+    var dev = devices.find(d => d.id === activeDeviceId); el.textContent = dev && dev.status === 'unbound' ? '已连接 · 已解绑' : '已连接 · 设备离线 🔴';
   }
   var ci = document.getElementById('cal-info');
   if (offsetX || offsetY) {

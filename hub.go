@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"golang.org/x/crypto/bcrypt"
 	"nhooyr.io/websocket"
 	_ "modernc.org/sqlite"
 )
@@ -37,9 +38,10 @@ type WSMessage struct {
 }
 
 type deviceConn struct {
-	conn     *websocket.Conn
-	deviceID string
-	mu       sync.Mutex
+	conn      *websocket.Conn
+	deviceID  string
+	lastFrame time.Time
+	mu        sync.Mutex
 }
 
 type dashConn struct {
@@ -112,6 +114,7 @@ func (h *Hub) sendToDevice(deviceID string, msg WSMessage) error {
 }
 
 func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -154,6 +157,15 @@ func (h *Hub) broadcastDeviceList() {
 		log.Printf("[hub] error getting device list: %v", err)
 		return
 	}
+
+	// 注入各设备的 lastFrame 时间
+	h.mu.RLock()
+	for i := range devices {
+		if dc, ok := h.devices[devices[i].ID]; ok {
+			devices[i].LastFrame = dc.lastFrame
+		}
+	}
+	h.mu.RUnlock()
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -206,9 +218,33 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	dev, err := verifyDeviceToken(authMsg.DeviceID, authMsg.Token)
 	log.Printf("[ws/device] auth attempt: deviceID=%s tokenLen=%d", authMsg.DeviceID, len(authMsg.Token))
 	if err != nil || dev == nil {
-		c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid token"}))
-		log.Printf("[ws/device] auth failed: token not found")
-		return
+		// 设备不存在：检查是否有待绑定的token
+		// 检查 device_codes 中所有待绑定的 token
+		rows, err2 := db.Query("SELECT token_hash FROM device_codes WHERE device_id=? AND token_hash IS NOT NULL", authMsg.DeviceID)
+		if err2 == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var tokenHash string
+				rows.Scan(&tokenHash)
+				if tokenHash != "" && bcrypt.CompareHashAndPassword([]byte(tokenHash), []byte(authMsg.Token)) == nil {
+					log.Printf("[ws/device] creating device from pending bind: %s (tokenHash len=%d)", authMsg.DeviceID, len(tokenHash))
+					rows.Close()
+					var uid string
+					db.QueryRow("SELECT user_id FROM device_codes WHERE device_id=? AND token_hash IS NOT NULL", authMsg.DeviceID).Scan(&uid)
+					_, err3 := db.Exec("INSERT INTO devices (id, name, user_id, token_hash, status, created_at) VALUES (?, ?, ?, ?, 'online', datetime('now'))", authMsg.DeviceID, authMsg.DeviceID, uid, tokenHash)
+					log.Printf("[ws/device] insert result: %v, tokenHash len=%d", err3, len(tokenHash))
+					db.Exec("UPDATE devices SET token_hash=? WHERE id=?", tokenHash, authMsg.DeviceID)
+					db.Exec("DELETE FROM device_codes WHERE device_id=?", authMsg.DeviceID)
+					dev, _ = getDevice(authMsg.DeviceID)
+					break
+				}
+			}
+		}
+		if dev == nil {
+			c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid token"}))
+			log.Printf("[ws/device] auth failed: token not found")
+			return
+		}
 	}
 
 	deviceID = dev.ID
@@ -261,6 +297,9 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(data, &msg) == nil {
 				switch msg.Type {
 				case "pong":
+				case "unbind":
+					db.Exec("UPDATE devices SET status='unbound' WHERE id=?", deviceID)
+					go hub.broadcastDeviceList()
 				case "task_status":
 					hub.broadcastToDash(WSMessage{Type: "task_status", DeviceID: deviceID, Text: msg.Text})
 				case "status":

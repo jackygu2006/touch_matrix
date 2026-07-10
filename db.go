@@ -20,6 +20,7 @@ import (
 
 type Device struct {
 	ID         string  `json:"id"`
+	LastFrame  time.Time `json:"last_frame"`
 	UserID     string  `json:"user_id,omitempty"`
 	Name       string  `json:"name"`
 	TokenHash  string  `json:"-"`
@@ -75,6 +76,7 @@ func initDB(dbPath string) error {
 		CREATE TABLE IF NOT EXISTS device_codes (
 			code        TEXT PRIMARY KEY,
 			device_id   TEXT NOT NULL,
+			token_hash  TEXT,
 			expires_at  TEXT NOT NULL
 		);
 	`)
@@ -88,7 +90,12 @@ func initDB(dbPath string) error {
 	// Add user_id to devices
 	db.Exec("ALTER TABLE devices ADD COLUMN user_id TEXT REFERENCES users(id)")
 
-	return nil
+	
+	// Ensure user_id column exists
+	db.Exec("ALTER TABLE device_codes ADD COLUMN user_id TEXT")
+	// Ensure token_hash column exists in device_codes (for existing DBs)
+	db.Exec("ALTER TABLE device_codes ADD COLUMN token_hash TEXT")
+return nil
 }
 
 func upsertDevice(d Device) error {
@@ -116,7 +123,7 @@ func setDeviceOnline(deviceID string) error {
 }
 
 func setDeviceOffline(deviceID string) error {
-	_, err := db.Exec(`UPDATE devices SET status='offline' WHERE id=?`, deviceID)
+	_, err := db.Exec(`UPDATE devices SET status='offline' WHERE id=? AND status != 'unbound'`, deviceID)
 	return err
 }
 
@@ -148,8 +155,8 @@ func getDevices() ([]Device, error) {
 func getDevice(id string) (*Device, error) {
 	var d Device
 	var lastSeen sql.NullString
-	err := db.QueryRow(`SELECT id, COALESCE(user_id,'') as user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
-		Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
+	err := db.QueryRow(`SELECT id, COALESCE(user_id,'') as user_id, token_hash, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
+		Scan(&d.ID, &d.UserID, &d.TokenHash, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

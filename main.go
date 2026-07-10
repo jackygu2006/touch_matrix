@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
@@ -206,17 +207,17 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = db.Exec(`UPDATE devices SET token_hash=?, user_id=? WHERE id=?`, tokenHash, userID, deviceID)
+	_, err = db.Exec(`INSERT INTO device_codes (code, device_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`, req.Code, deviceID, userID, tokenHash)
 	if err != nil {
+		log.Printf("[bind] update device_codes error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
 
-	dev, _ := getDevice(deviceID)
 	writeJSON(w, 200, map[string]interface{}{
 		"device_id": deviceID,
 		"token":     token,
-		"device":    dev,
+		"status":    "waiting_for_device",
 	})
 }
 
@@ -228,11 +229,11 @@ func handleGetDevices(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
-	// Filter: admin sees all, users see only their own
-	if u != nil && u.Role != "admin" {
+	// Filter: everyone sees only their own devices
+	if u != nil {
 		var filtered []Device
 		for _, d := range devices {
-			if d.UserID == u.ID {
+			if d.UserID == u.ID || d.UserID == "" {
 				filtered = append(filtered, d)
 			}
 		}
@@ -313,32 +314,35 @@ func handlePairingCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dev, _ := getDevice(req.DeviceID)
-	exists := dev != nil
-
-	if dev == nil {
-		db.Exec(`INSERT OR IGNORE INTO devices (id, name, status, created_at) VALUES (?, ?, 'offline', datetime('now'))`,
-			req.DeviceID, req.DeviceID)
-	}
-
 	code, err := createPairingCode(req.DeviceID)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
 
-	resp := map[string]string{
+	writeJSON(w, 200, map[string]string{
 		"code":    code,
 		"expires": "10 minutes",
-	}
-	if exists {
-		resp["warning"] = "该设备ID已被使用，继续将覆盖旧设备的绑定"
-	}
-	writeJSON(w, 200, resp)
+	})
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
+func handleQRCode(w http.ResponseWriter, r *http.Request) {
+	scheme := "ws"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "wss"
+	}
+	wsURL := scheme + "://" + r.Host + "/ws/device"
+	png, err := qrcode.Encode(wsURL, qrcode.Medium, 256)
+	if err != nil {
+		http.Error(w, "qr error", 500)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Write(png)
 }
 
 func generateToken() string {
@@ -652,6 +656,7 @@ func main() {
 	mux.HandleFunc("POST /api/devices/{id}/task", api(handlePostTask))
 	mux.HandleFunc("POST /api/pairing-code", handlePairingCode)
 	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("GET /api/qrcode", handleQRCode)
 
 	staticDir := envOrDefault("STATIC_DIR", "./static")
 	fs := http.FileServer(http.Dir(staticDir))

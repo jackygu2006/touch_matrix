@@ -38,7 +38,7 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
   if (data.role === 'admin') txt += ' · 管理员';
   ui.textContent = txt;
   } catch(e) { location.href = '/login.html'; return; }
-  connect();
+  // connect() is called at end of ui.js
 })();
 
 function toast(msg, style) {
@@ -62,6 +62,10 @@ function connect() {
   ws.onopen = () => {
     updateStatus('connected', '已连接');
     document.getElementById('conn-dot').style.background = 'var(--online)';
+    // 通过 REST API 拉取设备列表作为兜底
+    fetch('/api/devices', {headers:{'Authorization':'Bearer '+localStorage.getItem('nftouch_token')}})
+      .then(r=>r.json()).then(d=>{if(Array.isArray(d)){devices=d;if(typeof renderDeviceList==='function')renderDeviceList();}})
+      .catch(function(){});
   };
 
   let pendingFrameHeader = null;
@@ -72,9 +76,10 @@ function connect() {
       switch (msg.type) {
         case 'device_list':
           devices = msg.devices || [];
-          renderDeviceList();
-          updateDeviceStatus();
-          // Grid rebuilt only on toggle, not on periodic sync
+          if (typeof renderDeviceList === 'function') {
+            renderDeviceList();
+            updateDeviceStatus();
+          }
           break;
         case 'frame':
           pendingFrameHeader = msg;

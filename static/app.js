@@ -1,3 +1,4 @@
+// State, Init, WebSocket, Toast
 // ============================================================
 // State
 // ============================================================
@@ -37,7 +38,7 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
   if (data.role === 'admin') txt += ' · 管理员';
   ui.textContent = txt;
   } catch(e) { location.href = '/login.html'; return; }
-  connect();
+  // connect() is called at end of ui.js
 })();
 
 function toast(msg, style) {
@@ -61,6 +62,10 @@ function connect() {
   ws.onopen = () => {
     updateStatus('connected', '已连接');
     document.getElementById('conn-dot').style.background = 'var(--online)';
+    // 通过 REST API 拉取设备列表作为兜底
+    fetch('/api/devices', {headers:{'Authorization':'Bearer '+localStorage.getItem('nftouch_token')}})
+      .then(r=>r.json()).then(d=>{if(Array.isArray(d)){devices=d;if(typeof renderDeviceList==='function')renderDeviceList();}})
+      .catch(function(){});
   };
 
   let pendingFrameHeader = null;
@@ -71,9 +76,10 @@ function connect() {
       switch (msg.type) {
         case 'device_list':
           devices = msg.devices || [];
-          renderDeviceList();
-          updateDeviceStatus();
-          // Grid rebuilt only on toggle, not on periodic sync
+          if (typeof renderDeviceList === 'function') {
+            renderDeviceList();
+            updateDeviceStatus();
+          }
           break;
         case 'frame':
           pendingFrameHeader = msg;
@@ -151,7 +157,7 @@ function updateStatus(status, text) {
     document.getElementById('status-left').textContent = text;
   }
 }
-
+// Device List, Grid, Sorting, Canvas Events
 // ============================================================
 // Device List
 // ============================================================
@@ -190,7 +196,7 @@ function renderDeviceList() {
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
       <div class="dot ${d.status === 'online' ? 'online' : 'offline'}"></div>
       <div class="info">
-        <div class="name">${escHtml(d.name || d.id)}${d.status === 'offline' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : ''}</div>
+        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status === 'offline' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : ''}</div>
         <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · 电量 ${d.battery}%</div>
       </div>
       <span onclick="event.stopPropagation();showDeviceSettings('${d.id}')" style="cursor:pointer;opacity:.5;font-size:14px;padding:4px;" title="设备设置">⚙</span>
@@ -201,15 +207,29 @@ function renderDeviceList() {
   // Restore selection state
   if (activeDeviceId) {
     const dev = devices.find(d => d.id === activeDeviceId);
-    if (!dev || dev.status === 'offline') {
-      document.getElementById('task-msg').style.display = 'block';
-      document.getElementById('task-msg').textContent = '⚠️ 设备离线，请在手机上打开 NFTouch 应用即可自动重连';
+    if (!dev || dev.status === 'offline' || dev.status === 'unbound') {
+      var msg = '';
+      if (dev && dev.status === 'unbound') msg = '⚠ 设备已解绑<br>请重新配对';
+      else if (dev && dev.status === 'offline') msg = '⚠ 设备已离线<br>请在设备上打开 NF Touch App';
+      else msg = '选择一个设备查看实时屏幕';
+      document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;line-height:1.8;">' + msg + '</div>';
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
-      // 设备在线，隐藏离线提示（保留其他任务消息）
+      // 检测 ScreenStreamer 是否卡死（5秒无帧）
+      if (dev.last_frame) {
+        var age = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
+        if (age > 5) {
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备在线但无画面<br>请重启无障碍服务或NF Touch</div>';
+          document.getElementById('screen-placeholder').classList.remove('hidden');
+          canvas.classList.add('hidden');
+          return;
+        }
+      }
+      document.getElementById('screen-placeholder').classList.add('hidden');
+      canvas.classList.remove('hidden');
       var el = document.getElementById('task-msg');
-      if (el.textContent.indexOf('离线') >= 0) {
+      if (el.textContent.indexOf('离线') >= 0 || el.textContent.indexOf('解绑') >= 0) {
         el.style.display = 'none';
       }
     }
@@ -245,7 +265,7 @@ function updateDeviceStatus() {
   if (dev.status === 'online') {
     el.textContent = '已连接 · 设备在线 🟢';
   } else {
-    el.textContent = '已连接 · 设备离线 🔴';
+    var dv = devices.find(d => d.id === activeDeviceId); el.textContent = dv && dv.status === 'unbound' ? '已连接 · 已解绑' : '已连接 · 设备离线 🔴';
   }
   var ci = document.getElementById('cal-info');
   if (offsetX || offsetY) {
@@ -377,7 +397,9 @@ function buildGrid() {
     card.style.cssText = 'width:' + w + ';min-width:150px;background:var(--surface);border-radius:10px;overflow:hidden;border:1px solid var(--border);';
     card.innerHTML = '<div style="padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:6px;">' +
       '<span style="width:6px;height:6px;border-radius:50%;background:' + (d.status==='online'?'var(--online)':'var(--offline)') + ';"></span>' +
-      escHtml(d.name||d.id) + ' <span style="color:var(--text2);">' + escHtml(d.model||'') + '</span></div>';
+      escHtml(d.name||d.id) + ' <span style="color:var(--text2);">' + escHtml(d.model||'') + '</span>' +
+      (d.status==='unbound' ? ' <span style="color:var(--offline);font-size:10px;">已解绑</span>' : d.status==='offline' ? ' <span style="color:var(--offline);font-size:10px;">离线</span>' : '') +
+      '</div>';
     var cvs = document.createElement('canvas');
     cvs.style.cssText = 'width:100%;aspect-ratio:' + (d.resolution||'720x1600').replace('x','/') + ';background:#000;';
     var btns = document.createElement('div');
@@ -458,6 +480,7 @@ function buildGrid() {
   countEl.textContent = devices.length + ' 台设备';
 }
 
+// Admin Panel
 function showAdminPanel() {
   document.getElementById('admin-modal').classList.remove('hidden');
   var tb = document.getElementById('admin-user-table');
@@ -603,7 +626,7 @@ function logout() {
   document.cookie = 'nftouch_token=;path=/;max-age=0';
   location.replace('/login.html');
 }
-
+// Control Bar, Bind Modal, Device Settings, Calibration
 function sendText() {
   if (!activeDeviceId) return toast('请先选择一个设备', 'error');
   const input = document.getElementById('text-input');
@@ -692,16 +715,27 @@ async function doBind() {
 }
 
 function copyToken() {
-  navigator.clipboard.writeText(lastBindToken).then(() => {
-    toast('Token 已复制到剪贴板！', 'success');
-  }).catch(() => {
-    // Fallback: select text manually
-    const el = document.getElementById('bind-token');
-    const range = document.createRange();
-    range.selectNode(el);
-    window.getSelection().removeAllRanges();
-    window.getSelection().addRange(range);
-  });
+  var text = document.getElementById('bind-token').textContent;
+  if (!text) return;
+  // Try modern API first
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      toast('Token 已复制！', 'success');
+    }).catch(function() { fallbackCopy(text); });
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed'; ta.style.left = '-999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); toast('Token 已复制！', 'success'); }
+  catch(e) { toast('复制失败，请手动选择并复制', 'error'); }
+  document.body.removeChild(ta);
 }
 
 function showDeviceSettings(id) {
@@ -713,7 +747,7 @@ function showDeviceSettings(id) {
   document.getElementById('dev-settings-content').innerHTML = `
     <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">
       型号: ${escHtml(dev.model||'-')} · 分辨率: ${escHtml(dev.resolution||'-')} · 电量: ${dev.battery}%<br>
-      状态: ${dev.status==='online'?'🟢 在线':'🔴 离线'} · 当前校准: X=${s.x||0} Y=${s.y||0}
+      状态: ${dev.status==='online'?'🟢 在线': dev.status==='unbound'?'🔴 已解绑':'🔴 离线'} · 当前校准: X=${s.x||0} Y=${s.y||0}
     </div>
     ${dev.status==='offline' ? '<div style="font-size:11px;color:var(--offline);margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px;">⚠ 请在手机上打开 NFTouch 应用即可自动重连。<br>如果仍无法连接，点 × 删掉后重新配对。</div>' : ''}
     <div style="font-size:11px;color:var(--accent);margin-bottom:8px;">💡 鼠标悬停在画面上可看到实时坐标</div>
@@ -893,3 +927,4 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
   }
 });
+connect();

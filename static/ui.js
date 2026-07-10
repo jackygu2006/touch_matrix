@@ -87,16 +87,27 @@ async function doBind() {
 }
 
 function copyToken() {
-  navigator.clipboard.writeText(lastBindToken).then(() => {
-    toast('Token 已复制到剪贴板！', 'success');
-  }).catch(() => {
-    // Fallback: select text manually
-    const el = document.getElementById('bind-token');
-    const range = document.createRange();
-    range.selectNode(el);
-    window.getSelection().removeAllRanges();
-    window.getSelection().addRange(range);
-  });
+  var text = document.getElementById('bind-token').textContent;
+  if (!text) return;
+  // Try modern API first
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      toast('Token 已复制！', 'success');
+    }).catch(function() { fallbackCopy(text); });
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed'; ta.style.left = '-999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); toast('Token 已复制！', 'success'); }
+  catch(e) { toast('复制失败，请手动选择并复制', 'error'); }
+  document.body.removeChild(ta);
 }
 
 function showDeviceSettings(id) {
@@ -288,3 +299,4 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
   }
 });
+connect();
