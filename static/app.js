@@ -73,7 +73,7 @@ function connect() {
           devices = msg.devices || [];
           renderDeviceList();
           updateDeviceStatus();
-          if (gridMode) buildGrid();
+          // Grid rebuilt only on toggle, not on periodic sync
           break;
         case 'frame':
           pendingFrameHeader = msg;
