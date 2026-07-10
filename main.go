@@ -200,12 +200,8 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 	userID := ""
 	if u != nil { userID = u.ID }
 
-	// 检查设备是否已被其他用户绑定
-	existing, _ := getDevice(deviceID)
-	if existing != nil && existing.UserID != "" && existing.UserID != userID {
-		writeJSON(w, 400, map[string]string{"error": "设备已被其他用户绑定，请在其他账户中删除并解绑该设备后继续绑定"})
-		return
-	}
+	// 删除旧设备记录（如果有），确保重新配对能写入新 Token
+	db.Exec("DELETE FROM devices WHERE id=?", deviceID)
 
 	_, err = db.Exec(`INSERT INTO device_codes (code, device_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`, req.Code, deviceID, userID, tokenHash)
 	if err != nil {

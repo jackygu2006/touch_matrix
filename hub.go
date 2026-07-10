@@ -231,7 +231,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 					rows.Close()
 					var uid string
 					db.QueryRow("SELECT user_id FROM device_codes WHERE device_id=? AND token_hash IS NOT NULL", authMsg.DeviceID).Scan(&uid)
-					_, err3 := db.Exec("INSERT INTO devices (id, name, user_id, token_hash, status, created_at) VALUES (?, ?, ?, ?, 'online', datetime('now'))", authMsg.DeviceID, authMsg.DeviceID, uid, tokenHash)
+					_, err3 := db.Exec("INSERT INTO devices (id, name, user_id, token_hash, status, created_at) VALUES (?, ?, ?, ?, 'online', datetime('now')) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash, user_id=excluded.user_id, status='online'", authMsg.DeviceID, authMsg.DeviceID, uid, tokenHash)
 					log.Printf("[ws/device] insert result: %v, tokenHash len=%d", err3, len(tokenHash))
 					db.Exec("UPDATE devices SET token_hash=? WHERE id=?", tokenHash, authMsg.DeviceID)
 					db.Exec("DELETE FROM device_codes WHERE device_id=?", authMsg.DeviceID)
