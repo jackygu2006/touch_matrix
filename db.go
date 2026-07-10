@@ -246,6 +246,12 @@ func getUsersAll() ([]User, error) {
 	return users, nil
 }
 
+func countPendingBindsForUser(userID string) int {
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM device_codes WHERE user_id=? AND token_hash IS NOT NULL AND expires_at >= datetime('now')", userID).Scan(&count)
+	return count
+}
+
 func countDevicesForUser(userID string) int {
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM devices WHERE user_id=?", userID).Scan(&count)

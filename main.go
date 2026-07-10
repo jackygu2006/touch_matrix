@@ -187,7 +187,7 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 	// Quota check
 	u := getUserFromRequest(r)
 	if u != nil && u.Role != "admin" {
-		current := countDevicesForUser(u.ID)
+		current := countDevicesForUser(u.ID) + countPendingBindsForUser(u.ID)
 		if current >= u.MaxDevices {
 			writeJSON(w, 400, map[string]string{"error": fmt.Sprintf("设备配额已满（%d/%d）", current, u.MaxDevices)})
 			return
@@ -200,8 +200,8 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 	userID := ""
 	if u != nil { userID = u.ID }
 
-	// 删除旧设备记录（如果有），确保重新配对能写入新 Token
-	db.Exec("DELETE FROM devices WHERE id=?", deviceID)
+	// 清理旧设备记录（保留在线设备，避免断连）
+	db.Exec("DELETE FROM devices WHERE id=? AND status != 'online'", deviceID)
 
 	_, err = db.Exec(`INSERT INTO device_codes (code, device_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`, req.Code, deviceID, userID, tokenHash)
 	if err != nil {
