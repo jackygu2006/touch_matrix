@@ -43,11 +43,11 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 
 function toast(msg, style) {
   var el = document.getElementById('task-msg');
-  el.style.display = 'block';
+  el.style.visibility = 'visible';
   el.textContent = msg;
   el.style.color = style === 'error' ? '#f87171' : style === 'success' ? '#22c55e' : 'var(--text2)';
   clearTimeout(el._timeout);
-  el._timeout = setTimeout(function() { el.style.display = 'none'; }, 3000);
+  el._timeout = setTimeout(function() { el.style.visibility = 'hidden'; }, 3000);
 }
 
 
@@ -230,7 +230,7 @@ function renderDeviceList() {
       canvas.classList.remove('hidden');
       var el = document.getElementById('task-msg');
       if (el.textContent.indexOf('离线') >= 0 || el.textContent.indexOf('解绑') >= 0) {
-        el.style.display = 'none';
+        el.style.visibility = 'hidden';
       }
     }
   }
@@ -655,11 +655,11 @@ function sendTask() {
 
 function showTaskMsg(text) {
   const el = document.getElementById('task-msg');
-  el.style.display = 'block';
+  el.style.visibility = 'visible';
   el.textContent = text;
   // Auto-hide after 15s
   clearTimeout(el._timeout);
-  el._timeout = setTimeout(() => { el.style.display = 'none'; }, 15000);
+  el._timeout = setTimeout(() => { el.style.visibility = 'hidden'; }, 15000);
 }
 
 // ============================================================
@@ -927,4 +927,5 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
   }
 });
+connect();
 connect();

@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
@@ -326,20 +325,6 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
-func handleQRCode(w http.ResponseWriter, r *http.Request) {
-	scheme := "ws"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "wss"
-	}
-	wsURL := scheme + "://" + r.Host + "/ws/device"
-	png, err := qrcode.Encode(wsURL, qrcode.Medium, 256)
-	if err != nil {
-		http.Error(w, "qr error", 500)
-		return
-	}
-	w.Header().Set("Content-Type", "image/png")
-	w.Write(png)
-}
 
 func generateToken() string {
 	b := make([]byte, 32)
@@ -652,7 +637,6 @@ func main() {
 	mux.HandleFunc("POST /api/devices/{id}/task", api(handlePostTask))
 	mux.HandleFunc("POST /api/pairing-code", handlePairingCode)
 	mux.HandleFunc("GET /health", handleHealth)
-	mux.HandleFunc("GET /api/qrcode", handleQRCode)
 
 	staticDir := envOrDefault("STATIC_DIR", "./static")
 	fs := http.FileServer(http.Dir(staticDir))
