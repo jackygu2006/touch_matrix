@@ -50,7 +50,6 @@ async function doLogin(e) {
     var data = await resp.json();
     if (resp.ok) {
       localStorage.setItem('nftouch_token', data.token);
-      document.cookie = "nftouch_token=" + data.token + ";path=/;max-age=604800;SameSite=Lax";
       localStorage.setItem('nftouch_user', JSON.stringify({email:data.email, nickname:data.nickname, role:data.role}));
       location.replace('/');
     } else {

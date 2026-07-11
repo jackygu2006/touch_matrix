@@ -2,30 +2,28 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"sync"
 	"strings"
+	"sync"
 	"time"
+
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
-
-
 
 var bgCtx = context.Background()
 var db *sql.DB
 
 // REST API Handlers
 // ============================================================
-
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -51,7 +49,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	token, _ := generateJWT(u)
 	http.SetCookie(w, &http.Cookie{
 		Name: "nftouch_token", Value: token, Path: "/",
-		HttpOnly: false, MaxAge: 604800,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 604800,
 	})
 	writeJSON(w, 200, map[string]interface{}{
 		"token": token, "email": u.Email, "nickname": u.Nickname, "role": u.Role,
@@ -88,7 +86,9 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "email and password required"})
 		return
 	}
-	if req.MaxDevices <= 0 { req.MaxDevices = 5 }
+	if req.MaxDevices <= 0 {
+		req.MaxDevices = 5
+	}
 	if existing, _ := getUserByEmail(req.Email); existing != nil {
 		writeJSON(w, 400, map[string]string{"error": "email already exists"})
 		return
@@ -145,7 +145,9 @@ func handleAdminUserToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	newStatus := "active"
-	if u.Status == "active" { newStatus = "disabled" }
+	if u.Status == "active" {
+		newStatus = "disabled"
+	}
 	db.Exec("UPDATE users SET status=? WHERE id=?", newStatus, id)
 	writeJSON(w, 200, map[string]string{"status": newStatus})
 }
@@ -197,7 +199,9 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 	tokenHash := hashToken(token)
 
 	userID := ""
-	if u != nil { userID = u.ID }
+	if u != nil {
+		userID = u.ID
+	}
 
 	// 清理旧设备记录（保留在线设备，避免断连）
 	db.Exec("DELETE FROM devices WHERE id=? AND status != 'online'", deviceID)
@@ -325,7 +329,6 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
-
 func generateToken() string {
 	b := make([]byte, 32)
 	rand.Read(b)
@@ -380,10 +383,6 @@ func jwtFromRequest(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		return strings.TrimPrefix(auth, "Bearer ")
-	}
-	cookie, _ := r.Cookie("nftouch_token")
-	if cookie != nil {
-		return cookie.Value
 	}
 	return ""
 }
@@ -489,16 +488,6 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 // Middleware
 // ============================================================
 
-func adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if getUserFromRequest(r) == nil && !checkSession(r) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next(w, r)
-	}
-}
-
 func adminOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u := getUserFromRequest(r)
@@ -521,31 +510,18 @@ func jwtAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Admin-Key")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(200)
-			return
-		}
-		next(w, r)
-	}
-}
-
 // ============================================================
 // Main
 // ============================================================
 
 var (
-	staticDir      string
-	adminPassword  string
-	listenAddr     string
-	tlsCert        string
-	tlsKey         string
-	dbPath         string
-	sessionSecret  string
+	staticDir     string
+	adminPassword string
+	listenAddr    string
+	tlsCert       string
+	tlsKey        string
+	dbPath        string
+	sessionSecret string
 )
 
 func authStatic(fs http.Handler) http.HandlerFunc {
@@ -594,7 +570,9 @@ func main() {
 
 	// Initialize admin user
 	adminEmail := envOrDefault("ADMIN_EMAIL", "admin@nftouch.local")
-	if !strings.Contains(adminEmail, "@") { log.Fatalf("Invalid ADMIN_EMAIL: %s", adminEmail) }
+	if !strings.Contains(adminEmail, "@") {
+		log.Fatalf("Invalid ADMIN_EMAIL: %s", adminEmail)
+	}
 	adminPass := envOrDefault("ADMIN_PASSWORD", "nf123456")
 	if existing, _ := getUserByEmail(adminEmail); existing == nil {
 		createUserDB(adminEmail, adminPass, "Admin", "admin", "", 999)
@@ -615,26 +593,21 @@ func main() {
 	mux.HandleFunc("GET /ws/device", handleDeviceWS)
 	mux.HandleFunc("GET /ws/dash", handleDashWS)
 
-	api := func(h http.HandlerFunc) http.HandlerFunc {
-		return adminAuthMiddleware(corsMiddleware(h))
-	}
-
-	mux.HandleFunc("POST /api/login", corsMiddleware(handleLogin))
-	mux.HandleFunc("POST /api/logout", handleLogout)
-	mux.HandleFunc("POST /api/auth/login", corsMiddleware(handleAuthLogin))
-	mux.HandleFunc("GET /api/auth/check", corsMiddleware(handleAuthCheckNew))
-	mux.HandleFunc("GET /api/profile", corsMiddleware(jwtAuth(handleProfile)))
+	mux.HandleFunc("POST /api/auth/login", handleAuthLogin)
+	mux.HandleFunc("GET /api/auth/check", handleAuthCheckNew)
+	mux.HandleFunc("GET /api/profile", jwtAuth(handleProfile))
 	// Admin routes
-	mux.HandleFunc("GET /api/admin/users", corsMiddleware(jwtAuth(adminOnly(handleAdminUsers))))
-	mux.HandleFunc("POST /api/admin/users", corsMiddleware(jwtAuth(adminOnly(handleAdminUsers))))
-	mux.HandleFunc("PUT /api/admin/users/{id}", corsMiddleware(jwtAuth(adminOnly(handleAdminUser))))
-	mux.HandleFunc("DELETE /api/admin/users/{id}", corsMiddleware(jwtAuth(adminOnly(handleAdminUser))))
-	mux.HandleFunc("PUT /api/admin/users/{id}/toggle", corsMiddleware(jwtAuth(adminOnly(handleAdminUserToggle))))
-	mux.HandleFunc("POST /api/bind", api(handleBind))
-	mux.HandleFunc("GET /api/devices", api(handleGetDevices))
-	mux.HandleFunc("GET /api/devices/{id}", api(handleGetDevice))
-	mux.HandleFunc("DELETE /api/devices/{id}", api(handleDeleteDevice))
-	mux.HandleFunc("POST /api/devices/{id}/task", api(handlePostTask))
+	mux.HandleFunc("GET /api/admin/users", jwtAuth(adminOnly(handleAdminUsers)))
+	mux.HandleFunc("POST /api/admin/users", jwtAuth(adminOnly(handleAdminUsers)))
+	mux.HandleFunc("PUT /api/admin/users/{id}", jwtAuth(adminOnly(handleAdminUser)))
+	mux.HandleFunc("DELETE /api/admin/users/{id}", jwtAuth(adminOnly(handleAdminUser)))
+	mux.HandleFunc("PUT /api/admin/users/{id}/toggle", jwtAuth(adminOnly(handleAdminUserToggle)))
+	// Device routes (JWT only)
+	mux.HandleFunc("POST /api/bind", jwtAuth(handleBind))
+	mux.HandleFunc("GET /api/devices", jwtAuth(handleGetDevices))
+	mux.HandleFunc("GET /api/devices/{id}", jwtAuth(handleGetDevice))
+	mux.HandleFunc("DELETE /api/devices/{id}", jwtAuth(handleDeleteDevice))
+	mux.HandleFunc("POST /api/devices/{id}/task", jwtAuth(handlePostTask))
 	mux.HandleFunc("POST /api/pairing-code", handlePairingCode)
 	mux.HandleFunc("GET /health", handleHealth)
 

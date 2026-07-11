@@ -1,6 +1,8 @@
 #!/bin/bash
 # 小奈Matrix 一键部署
 # 建议先配 SSH 免密: ssh-copy-id root@114.55.132.92
+#
+# 服务器配置从服务器上的 .env 读取，本地不再上传或硬编码密码。
 
 SERVER="root@114.55.132.92"
 REMOTE_DIR="/root/opt/xiaonai-matrix"
@@ -22,26 +24,17 @@ echo "=== 3. 上传文件 ==="
 ssh "$SERVER" "mkdir -p $REMOTE_DIR/static"
 scp nftouch-server "$SERVER:$REMOTE_DIR/" || exit 1
 scp static/*.html static/*.css static/*.js "$SERVER:$REMOTE_DIR/static/" || exit 1
-scp .env "$SERVER:$REMOTE_DIR/" || exit 1
 echo "上传完成"
 
 echo ""
 echo "=== 4. 启动服务 ==="
-# 拿到本地的密码配置，写入服务器启动脚本
-source .env 2>/dev/null || true
-E="${ADMIN_EMAIL:-admin@nftouch.local}"
-P="${ADMIN_PASSWORD:-nf123456}"
-J="${JWT_SECRET:-change-me}"
-
-# 在服务器上写启动脚本并后台执行
+# 启动脚本从服务器上的 .env 读取配置，不在本地传递密码
 ssh "$SERVER" "cat > /tmp/start-nftouch.sh << SCRIPT
 #!/bin/bash
 cd $REMOTE_DIR
 pkill -9 -f nftouch-server 2>/dev/null
 sleep 1
-export ADMIN_EMAIL='$E'
-export ADMIN_PASSWORD='$P'
-export JWT_SECRET='$J'
+set -a; source $REMOTE_DIR/.env; set +a
 nohup ./nftouch-server </dev/null > nftouch.log 2>&1 &
 echo \$! > /tmp/nftouch.pid
 SCRIPT

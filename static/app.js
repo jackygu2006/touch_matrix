@@ -623,7 +623,6 @@ async function deleteUser(id) {
 function logout() {
   localStorage.removeItem('nftouch_token');
   localStorage.removeItem('nftouch_user');
-  document.cookie = 'nftouch_token=;path=/;max-age=0';
   location.replace('/login.html');
 }
 // Control Bar, Bind Modal, Device Settings, Calibration
