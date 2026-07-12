@@ -29,7 +29,9 @@ var db *sql.DB
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("[api] json encode error: %v", err)
+	}
 }
 
 func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
@@ -147,14 +149,31 @@ func handleAdminUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Password != "" {
-			hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-			db.Exec("UPDATE users SET password=? WHERE id=?", string(hash), id)
+			hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+			if err != nil {
+				log.Printf("[admin] bcrypt error: %v", err)
+				writeJSON(w, 500, map[string]string{"error": "server error"})
+				return
+			}
+			if _, err := db.Exec("UPDATE users SET password=? WHERE id=?", string(hash), id); err != nil {
+				log.Printf("[admin] update password error: %v", err)
+				writeJSON(w, 500, map[string]string{"error": "server error"})
+				return
+			}
 		}
 		if req.Nickname != "" {
-			db.Exec("UPDATE users SET nickname=? WHERE id=?", req.Nickname, id)
+			if _, err := db.Exec("UPDATE users SET nickname=? WHERE id=?", req.Nickname, id); err != nil {
+				log.Printf("[admin] update nickname error: %v", err)
+				writeJSON(w, 500, map[string]string{"error": "server error"})
+				return
+			}
 		}
 		if req.MaxDevices > 0 {
-			db.Exec("UPDATE users SET max_devices=? WHERE id=?", req.MaxDevices, id)
+			if _, err := db.Exec("UPDATE users SET max_devices=? WHERE id=?", req.MaxDevices, id); err != nil {
+				log.Printf("[admin] update max_devices error: %v", err)
+				writeJSON(w, 500, map[string]string{"error": "server error"})
+				return
+			}
 		}
 		writeJSON(w, 200, map[string]string{"status": "updated"})
 	case "DELETE":
@@ -323,16 +342,27 @@ func handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	tx, err := db.Begin()
 	if err != nil {
+		log.Printf("[device] tx begin error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
-	defer tx.Rollback()
+
 	if _, err := tx.Exec("DELETE FROM devices WHERE id=?", id); err != nil {
+		tx.Rollback()
+		log.Printf("[device] delete device error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
-	tx.Exec("DELETE FROM device_codes WHERE device_id=?", id)
+
+	if _, err := tx.Exec("DELETE FROM device_codes WHERE device_id=?", id); err != nil {
+		tx.Rollback()
+		log.Printf("[device] delete device_codes error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
+		log.Printf("[device] tx commit error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
