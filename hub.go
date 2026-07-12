@@ -248,6 +248,7 @@ func (h *Hub) broadcastDeviceList() {
 func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true,
+		CompressionMode:    websocket.CompressionNoContextTakeover,
 	})
 	if err != nil {
 		log.Printf("[ws/device] accept error: %v", err)
@@ -417,7 +418,9 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		CompressionMode: websocket.CompressionNoContextTakeover,
+	})
 	if err != nil {
 		log.Printf("[ws/dash] accept error: %v", err)
 		return
