@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -366,7 +367,11 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		msgType, data, err := c.Read(bgCtx)
+		// 120s 读超时：设备断网后 TCP 可能不发送 RST，
+		// 超时触发 read 失败 → deffer unregisterDevice 清理
+		readCtx, cancel := context.WithTimeout(bgCtx, 120*time.Second)
+		msgType, data, err := c.Read(readCtx)
+		cancel()
 		if err != nil {
 			log.Printf("[ws/device] %s read error: %v", deviceID, err)
 			return
