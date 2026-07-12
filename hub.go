@@ -107,14 +107,20 @@ func (h *Hub) registerDevice(deviceID string, dc *deviceConn) {
 	log.Printf("[hub] device %s connected", deviceID)
 }
 
-func (h *Hub) unregisterDevice(deviceID string) {
+func (h *Hub) unregisterDevice(deviceID string, dc *deviceConn) {
 	h.mu.Lock()
-	delete(h.devices, deviceID)
+	current, ok := h.devices[deviceID]
+	if ok && current == dc {
+		delete(h.devices, deviceID)
+	}
 	h.mu.Unlock()
 
-	setDeviceOffline(deviceID)
-	h.broadcastDeviceList()
-	log.Printf("[hub] device %s disconnected", deviceID)
+	// 只有确认是自己的连接才执行离线操作
+	if ok && current == dc {
+		setDeviceOffline(deviceID)
+		h.broadcastDeviceList()
+		log.Printf("[hub] device %s disconnected", deviceID)
+	}
 }
 
 func (h *Hub) registerDash(dc *dashConn) {
@@ -336,7 +342,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_ok"}))
 
 	hub.registerDevice(deviceID, dc)
-	defer hub.unregisterDevice(deviceID)
+	defer hub.unregisterDevice(deviceID, dc)
 
 	// ping goroutine with exit signal
 	pingDone := make(chan struct{})
