@@ -27,11 +27,14 @@ function sendTask() {
 
 function showTaskMsg(text) {
   const el = document.getElementById('task-msg');
-  el.style.visibility = 'visible';
-  el.textContent = text;
-  // Auto-hide after 15s
-  clearTimeout(el._timeout);
-  el._timeout = setTimeout(() => { el.style.visibility = 'hidden'; }, 15000);
+  const p = document.createElement('div');
+  p.textContent = text;
+  p.style.padding = '4px 0';
+  p.style.borderBottom = '1px solid var(--border)';
+  el.appendChild(p);
+  el.scrollTop = el.scrollHeight;
+  // 保留最近 30 条消息
+  while (el.children.length > 30) el.removeChild(el.firstChild);
 }
 
 // ============================================================

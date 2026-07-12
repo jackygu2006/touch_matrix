@@ -121,7 +121,7 @@ function connect() {
           canvas.width = devW;
           canvas.height = devH;
           // 保持宽高比适配容器
-          var container = document.getElementById('screen-area');
+          var container = document.getElementById('screen-canvas-area');
           var scale = Math.min(container.clientWidth / devW, container.clientHeight / devH);
           canvas.style.width = (devW * scale) + 'px';
           canvas.style.height = (devH * scale) + 'px';

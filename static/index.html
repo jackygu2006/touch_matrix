@@ -26,13 +26,25 @@
       <button id="bind-btn" onclick="showBindModal()">+ 绑定设备</button>
     </div>
   </div>
-  <div id="main">
+   <div id="main">
     <div id="screen-area">
-      <div class="placeholder" id="screen-placeholder">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        选择一个设备查看实时屏幕
+      <div id="screen-canvas-area">
+        <div class="placeholder" id="screen-placeholder">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          选择一个设备查看实时屏幕
+        </div>
+        <canvas id="screen-canvas" class="hidden"></canvas>
       </div>
-      <canvas id="screen-canvas" class="hidden"></canvas>
+      <div id="task-panel">
+        <div id="task-panel-header">
+          <span>AI 任务</span>
+        </div>
+        <div id="task-msg" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text2);min-height:60px;overflow-y:auto;max-height:200px;"></div>
+        <div id="task-panel-inputs">
+          <input id="task-input" placeholder="输入任务，如：打开微信发消息给张三..." onkeydown="if(event.key==='Enter')sendTask()">
+          <button id="execute-btn" onclick="sendTask()">▶ 执行</button>
+        </div>
+      </div>
     </div>
     <div id="grid-view" style="display:none;flex:1;overflow-y:auto;padding:12px;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#000;">
       <div id="grid-toolbar" style="width:100%;padding:0 0 8px 0;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);">
@@ -44,7 +56,6 @@
       </div>
       <div id="grid-container" style="display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;width:100%;"></div>
     </div>
-    <div id="task-msg" style="position:absolute;bottom:0;left:0;right:0;z-index:10;background:var(--surface2);border-top:1px solid var(--border);padding:6px 20px;font-size:12px;color:var(--text2);min-height:20px;visibility:hidden;"></div>
     <div id="cal-bar" style="background:var(--accent);color:#fff;padding:8px 20px;font-size:12px;display:none;align-items:center;gap:12px;">
       <span id="cal-bar-text">校准中...</span>
       <span id="cal-bar-step" style="opacity:.7;"></span>
@@ -57,8 +68,6 @@
       <button class="quick-btn" onclick="sendKey('back')" title="返回">返回</button>
       <input id="text-input" placeholder="发送文字到手机..." onkeydown="if(event.key==='Enter'){sendText();event.preventDefault();}">
       <button class="quick-btn" onclick="sendText()" title="将文字粘贴到手机当前输入框">发送</button>
-      <input id="task-input" placeholder="AI 任务..." onkeydown="if(event.key==='Enter')sendTask()">
-      <button id="execute-btn" onclick="sendTask()">▶ 执行</button>
     </div>
     <div id="status-bar">
       <span id="status-left">未连接</span>

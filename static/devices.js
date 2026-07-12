@@ -202,15 +202,16 @@ function toggleGrid() {
   var gv = document.getElementById('grid-view');
   var sa = document.getElementById('screen-area');
   var cb = document.getElementById('control-bar');
+  var tp = document.getElementById('task-panel');
   if (gridMode) {
     btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)';
-    sa.style.display = 'none'; cb.style.display = 'none';
+    sa.style.display = 'none'; cb.style.display = 'none'; tp.style.display = 'none';
     gv.style.display = 'block';
     send({type: 'watch_all'});
     buildGrid();
   } else {
     btn.style.borderColor = 'var(--border)'; btn.style.color = 'var(--text2)';
-    sa.style.display = ''; cb.style.display = '';
+    sa.style.display = ''; cb.style.display = ''; tp.style.display = '';
     gv.style.display = 'none';
     if (activeDeviceId) send({type: 'watch_one', device_id: activeDeviceId});
   }
