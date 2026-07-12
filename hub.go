@@ -373,6 +373,11 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(data, &msg) == nil {
 				switch msg.Type {
 				case "pong":
+				case "device_ping":
+					// 设备主动探测延迟，原样回传时间戳
+					c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{
+						Type: "device_pong", Text: msg.Text,
+					}))
 				case "unbind":
 					db.Exec("UPDATE devices SET status='unbound' WHERE id=?", deviceID)
 					go hub.broadcastDeviceList()
