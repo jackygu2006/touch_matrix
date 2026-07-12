@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 	"golang.org/x/crypto/bcrypt"
@@ -116,22 +117,40 @@ func initDB(dbPath string) error {
 return nil
 }
 
+func isLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "database is locked") || strings.Contains(s, "SQLITE_BUSY")
+}
+
 func upsertDevice(d Device) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.Exec(`
-		INSERT INTO devices (id, name, user_id, token_hash, status, brand, model, resolution, battery, last_seen)
-		VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			name=excluded.name,
-			user_id=excluded.user_id,
-			token_hash=excluded.token_hash,
-			status='online',
-			brand=excluded.brand,
-			model=excluded.model,
-			resolution=excluded.resolution,
-			battery=excluded.battery,
-			last_seen=excluded.last_seen
-	`, d.ID, d.Name, d.UserID, d.TokenHash, d.Brand, d.Model, d.Resolution, d.Battery, now)
+	var err error
+	for i := 0; i < 3; i++ {
+		_, err = db.Exec(`
+			INSERT INTO devices (id, name, user_id, token_hash, status, brand, model, resolution, battery, last_seen)
+			VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				name=excluded.name,
+				user_id=excluded.user_id,
+				token_hash=excluded.token_hash,
+				status='online',
+				brand=excluded.brand,
+				model=excluded.model,
+				resolution=excluded.resolution,
+				battery=excluded.battery,
+				last_seen=excluded.last_seen
+		`, d.ID, d.Name, d.UserID, d.TokenHash, d.Brand, d.Model, d.Resolution, d.Battery, now)
+		if err == nil {
+			return nil
+		}
+		if !isLockError(err) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	return err
 }
 
@@ -147,7 +166,7 @@ func setDeviceOffline(deviceID string) error {
 }
 
 func getDevices() ([]Device, error) {
-	rows, err := db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
+	rows, err := db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, COALESCE(status,'offline') as status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, err
 	}

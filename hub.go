@@ -96,7 +96,13 @@ func (h *Hub) registerDevice(deviceID string, dc *deviceConn) {
 	}
 
 	if err := setDeviceOnline(deviceID); err != nil {
-		log.Printf("[hub] setDeviceOnline error for %s: %v", deviceID, err)
+		log.Printf("[hub] setDeviceOnline error for %s (retrying): %v", deviceID, err)
+		for retry := 0; retry < 2; retry++ {
+			time.Sleep(10 * time.Millisecond)
+			if err2 := setDeviceOnline(deviceID); err2 == nil {
+				break
+			}
+		}
 	}
 	h.broadcastDeviceList()
 	log.Printf("[hub] device %s connected", deviceID)
@@ -298,7 +304,11 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 					var uid string
 					db.QueryRow("SELECT user_id FROM device_codes WHERE device_id=? AND token_hash IS NOT NULL", authMsg.DeviceID).Scan(&uid)
 					dev = &Device{ID: authMsg.DeviceID, Name: authMsg.DeviceID, UserID: uid, TokenHash: tokenHash}
-					upsertDevice(*dev)
+					if err := upsertDevice(*dev); err != nil {
+						log.Printf("[ws/device] upsertDevice error for pending bind %s: %v", authMsg.DeviceID, err)
+						c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "server error"}))
+						return
+					}
 					db.Exec("DELETE FROM device_codes WHERE device_id=?", authMsg.DeviceID)
 					break
 				}
@@ -312,7 +322,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID = dev.ID
-	dc.lastFrame = time.Now() // 初始化为当前时间，避免误报"无画面"
+	dc.lastFrame = time.Now()
 	dc.deviceID = deviceID
 
 	if authMsg.Info != nil {
@@ -328,7 +338,11 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 		dev.Resolution = info.Resolution
 		dev.Battery = info.Battery
 	}
-	upsertDevice(*dev)
+	if err := upsertDevice(*dev); err != nil {
+		log.Printf("[ws/device] upsertDevice error for %s: %v", deviceID, err)
+		c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "server error"}))
+		return
+	}
 
 	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_ok"}))
 

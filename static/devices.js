@@ -37,7 +37,7 @@ function renderDeviceList() {
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
       <div class="dot ${d.status === 'online' ? 'online' : 'offline'}"></div>
       <div class="info">
-        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status === 'offline' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : ''}</div>
+        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : ''}</div>
         <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · 电量 ${d.battery}%</div>
       </div>
       <span onclick="event.stopPropagation();showDeviceSettings('${d.id}')" style="cursor:pointer;opacity:.5;font-size:14px;padding:4px;" title="设备设置">⚙</span>
