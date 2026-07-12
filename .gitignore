@@ -2,3 +2,5 @@
 nftouch.db
 nftouch.log
 *.db
+deploy.sh
+nftouch-server

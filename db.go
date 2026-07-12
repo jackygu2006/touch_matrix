@@ -56,10 +56,14 @@ func initDB(dbPath string) error {
 	if err != nil {
 		return err
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(5)
+	db.SetMaxIdleConns(2)
 
 	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_version (
+			version INTEGER PRIMARY KEY
+		);
+
 		CREATE TABLE IF NOT EXISTS devices (
 			id          TEXT PRIMARY KEY,
 			name        TEXT DEFAULT '',
@@ -85,26 +89,41 @@ func initDB(dbPath string) error {
 	}
 
 	// Users table
-	db.Exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password TEXT NOT NULL, nickname TEXT DEFAULT '', role TEXT DEFAULT 'user', status TEXT DEFAULT 'active', max_devices INTEGER DEFAULT 5, created_by TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password TEXT NOT NULL, nickname TEXT DEFAULT '', role TEXT DEFAULT 'user', status TEXT DEFAULT 'active', max_devices INTEGER DEFAULT 5, created_by TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))")
+	if err != nil {
+		return err
+	}
 
-	// Add user_id to devices
-	db.Exec("ALTER TABLE devices ADD COLUMN user_id TEXT REFERENCES users(id)")
+	// Schema migrations based on version
+	var currentVersion int
+	db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&currentVersion)
 
-	
-	// Ensure user_id column exists
-	db.Exec("ALTER TABLE device_codes ADD COLUMN user_id TEXT")
-	// Ensure token_hash column exists in device_codes (for existing DBs)
-	db.Exec("ALTER TABLE device_codes ADD COLUMN token_hash TEXT")
+	if currentVersion < 1 {
+		if _, err := db.Exec("ALTER TABLE devices ADD COLUMN user_id TEXT REFERENCES users(id)"); err != nil {
+			log.Printf("[db] ALTER TABLE devices ADD user_id: %v", err)
+		}
+		db.Exec("INSERT INTO schema_version (version) VALUES (1)")
+	}
+	if currentVersion < 2 {
+		if _, err := db.Exec("ALTER TABLE device_codes ADD COLUMN user_id TEXT"); err != nil {
+			log.Printf("[db] ALTER TABLE device_codes ADD user_id: %v", err)
+		}
+		if _, err := db.Exec("ALTER TABLE device_codes ADD COLUMN token_hash TEXT"); err != nil {
+			log.Printf("[db] ALTER TABLE device_codes ADD token_hash: %v", err)
+		}
+		db.Exec("INSERT INTO schema_version (version) VALUES (2)")
+	}
 return nil
 }
 
 func upsertDevice(d Device) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec(`
-		INSERT INTO devices (id, name, token_hash, status, brand, model, resolution, battery, last_seen)
-		VALUES (?, ?, ?, 'online', ?, ?, ?, ?, ?)
+		INSERT INTO devices (id, name, user_id, token_hash, status, brand, model, resolution, battery, last_seen)
+		VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name=excluded.name,
+			user_id=excluded.user_id,
 			token_hash=excluded.token_hash,
 			status='online',
 			brand=excluded.brand,
@@ -112,7 +131,7 @@ func upsertDevice(d Device) error {
 			resolution=excluded.resolution,
 			battery=excluded.battery,
 			last_seen=excluded.last_seen
-	`, d.ID, d.Name, d.TokenHash, d.Brand, d.Model, d.Resolution, d.Battery, now)
+	`, d.ID, d.Name, d.UserID, d.TokenHash, d.Brand, d.Model, d.Resolution, d.Battery, now)
 	return err
 }
 

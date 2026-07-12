@@ -7,16 +7,30 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
 	"golang.org/x/crypto/bcrypt"
-	"nhooyr.io/websocket"
 	_ "modernc.org/sqlite"
+	"nhooyr.io/websocket"
 )
-
-
 
 // WebSocket Hub
 // ============================================================
 
+// WSMessage is the universal message type for device↔server↔dashboard communication.
+// Fields are grouped by message type; only relevant fields are populated per type.
+//
+// Device auth:         Type="auth",       DeviceID, Token, Info(device info)
+// Device frame:        Type="frame",      DeviceID (binary frame follows separately)
+// Device status:       Type="status",     DeviceID, Info(battery)
+// Device unbind:       Type="unbind",     DeviceID
+// Dash commands:       Type="cmd_tap"|"cmd_swipe"|"cmd_input"|"cmd_task"|"cmd_key",
+//
+//	DeviceID, X,Y / X1,Y1,X2,Y2 / Text / Prompt / Key
+//
+// Server→dash list:    Type="device_list",Devices
+// Server→dash error:   Type="error",      Reason
+// Server→device ping:  Type="ping"
+// Connection control:  Type="auth_ok"|"auth_fail"|"pong"
 type WSMessage struct {
 	Type     string          `json:"type"`
 	DeviceID string          `json:"device_id,omitempty"`
@@ -45,17 +59,20 @@ type deviceConn struct {
 }
 
 type dashConn struct {
-	conn     *websocket.Conn
-	deviceID string
-	watchAll bool
-	userID   string
-	mu       sync.Mutex
+	conn        *websocket.Conn
+	deviceID    string
+	watchAll    bool
+	userID      string
+	lastVersion int64
+	mu          sync.Mutex
 }
 
 type Hub struct {
-	mu      sync.RWMutex
-	devices map[string]*deviceConn
-	dash    map[*dashConn]bool
+	mu            sync.RWMutex
+	devices       map[string]*deviceConn
+	dash          map[*dashConn]bool
+	deviceVersion int64
+	lastBroadcast time.Time
 }
 
 var hub = &Hub{
@@ -65,13 +82,22 @@ var hub = &Hub{
 
 func (h *Hub) registerDevice(deviceID string, dc *deviceConn) {
 	h.mu.Lock()
+	var oldConn *websocket.Conn
 	if old, ok := h.devices[deviceID]; ok {
-		old.conn.Close(websocket.StatusNormalClosure, "replaced")
+		oldConn = old.conn
 	}
 	h.devices[deviceID] = dc
 	h.mu.Unlock()
 
-	setDeviceOnline(deviceID)
+	if oldConn != nil {
+		if err := oldConn.Close(websocket.StatusNormalClosure, "replaced"); err != nil {
+			log.Printf("[hub] close old connection for %s: %v", deviceID, err)
+		}
+	}
+
+	if err := setDeviceOnline(deviceID); err != nil {
+		log.Printf("[hub] setDeviceOnline error for %s: %v", deviceID, err)
+	}
 	h.broadcastDeviceList()
 	log.Printf("[hub] device %s connected", deviceID)
 }
@@ -109,28 +135,46 @@ func (h *Hub) sendToDevice(deviceID string, msg WSMessage) error {
 	}
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
-	data, _ := json.Marshal(msg)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal error: %w", err)
+	}
 	return dc.conn.Write(bgCtx, websocket.MessageText, data)
 }
 
 func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
+	header, err := json.Marshal(WSMessage{Type: "frame", DeviceID: deviceID})
+	if err != nil {
+		log.Printf("[hub] marshal frame header error: %v", err)
+		return
+	}
 
+	// 先收集匹配的 dash 连接，再释放锁后写入
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	header, _ := json.Marshal(WSMessage{Type: "frame", DeviceID: deviceID})
+	var targets []*dashConn
 	for dc := range h.dash {
 		if dc.deviceID == deviceID || dc.watchAll {
-			dc.mu.Lock()
+			targets = append(targets, dc)
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, dc := range targets {
+		dc.mu.Lock()
+		go func(dc *dashConn) {
+			defer dc.mu.Unlock()
 			dc.conn.Write(bgCtx, websocket.MessageText, header)
 			dc.conn.Write(bgCtx, websocket.MessageBinary, frameData)
-			dc.mu.Unlock()
-		}
+		}(dc)
 	}
 }
 
 func (h *Hub) broadcastToDash(msg WSMessage) {
-	data, _ := json.Marshal(msg)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[hub] marshal broadcast error: %v", err)
+		return
+	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for dc := range h.dash {
@@ -147,11 +191,23 @@ func filterDevicesForUser(dc *dashConn, devices []Device) []Device {
 			result = append(result, d)
 		}
 	}
-	if result == nil { result = []Device{} }
+	if result == nil {
+		result = []Device{}
+	}
 	return result
 }
 
 func (h *Hub) broadcastDeviceList() {
+	// P02: 节流，500ms 内重复调用跳过
+	now := time.Now()
+	h.mu.Lock()
+	if now.Sub(h.lastBroadcast) < 500*time.Millisecond {
+		h.mu.Unlock()
+		return
+	}
+	h.lastBroadcast = now
+	h.mu.Unlock()
+
 	devices, err := getDevices()
 	if err != nil {
 		log.Printf("[hub] error getting device list: %v", err)
@@ -177,8 +233,14 @@ func (h *Hub) broadcastDeviceList() {
 				userDevices = append(userDevices, d)
 			}
 		}
-		if userDevices == nil { userDevices = []Device{} }
-		msg, _ := json.Marshal(WSMessage{Type: "device_list", Devices: userDevices})
+		if userDevices == nil {
+			userDevices = []Device{}
+		}
+		msg, err := json.Marshal(WSMessage{Type: "device_list", Devices: userDevices})
+		if err != nil {
+			log.Printf("[hub] marshal device_list error: %v", err)
+			continue
+		}
 		dc.mu.Lock()
 		dc.conn.Write(bgCtx, websocket.MessageText, msg)
 		dc.mu.Unlock()
@@ -197,7 +259,10 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ws/device] accept error: %v", err)
 		return
 	}
-	defer c.Close(websocket.StatusInternalError, "")
+	var statusCode websocket.StatusCode = websocket.StatusNormalClosure
+	defer func() {
+		c.Close(statusCode, "")
+	}()
 	c.SetReadLimit(2 << 20) // 2MB for screen frames
 
 	dc := &deviceConn{conn: c}
@@ -211,6 +276,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 
 	var authMsg WSMessage
 	if err := json.Unmarshal(msgBytes, &authMsg); err != nil || authMsg.Type != "auth" {
+		log.Printf("[ws/device] auth parse error: %v, type=%s", err, authMsg.Type)
 		c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid auth message"}))
 		return
 	}
@@ -231,10 +297,9 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 					rows.Close()
 					var uid string
 					db.QueryRow("SELECT user_id FROM device_codes WHERE device_id=? AND token_hash IS NOT NULL", authMsg.DeviceID).Scan(&uid)
-					_, err3 := db.Exec("INSERT INTO devices (id, name, user_id, token_hash, status, created_at) VALUES (?, ?, ?, ?, 'online', datetime('now')) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash, user_id=excluded.user_id, status='online'", authMsg.DeviceID, authMsg.DeviceID, uid, tokenHash)
-					log.Printf("[ws/device] insert result: %v, tokenHash len=%d", err3, len(tokenHash))
+					dev = &Device{ID: authMsg.DeviceID, Name: authMsg.DeviceID, UserID: uid, TokenHash: tokenHash}
+					upsertDevice(*dev)
 					db.Exec("DELETE FROM device_codes WHERE device_id=?", authMsg.DeviceID)
-					dev, _ = getDevice(authMsg.DeviceID)
 					break
 				}
 			}
@@ -270,15 +335,23 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	hub.registerDevice(deviceID, dc)
 	defer hub.unregisterDevice(deviceID)
 
+	// ping goroutine with exit signal
+	pingDone := make(chan struct{})
+	defer close(pingDone)
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			dc.mu.Lock()
-			err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "ping"}))
-			dc.mu.Unlock()
-			if err != nil {
+		for {
+			select {
+			case <-pingDone:
 				return
+			case <-ticker.C:
+				dc.mu.Lock()
+				err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "ping"}))
+				dc.mu.Unlock()
+				if err != nil {
+					return
+				}
 			}
 		}
 	}()
@@ -311,6 +384,8 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 						db.Exec(`UPDATE devices SET battery=?, last_seen=? WHERE id=?`,
 							info.Battery, time.Now().UTC().Format(time.RFC3339), deviceID)
 					}
+				default:
+					log.Printf("[ws/device] %s unknown message type: %s", deviceID, msg.Type)
 				}
 			}
 		}
@@ -319,25 +394,28 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 
 func handleDashWS(w http.ResponseWriter, r *http.Request) {
 	// Check JWT from cookie/header, or token query param
+	var queryTokenUser *User
 	if getUserFromRequest(r) == nil {
 		token := r.URL.Query().Get("token")
 		if token != "" {
-			_, err := validateJWT(token)
+			claims, err := validateJWT(token)
 			if err == nil {
-				// Valid JWT - allow connection
+				// Valid JWT - allow connection, and bind user from token
+				u, _ := getUserByID(claims.UserID)
+				if u != nil && u.Status == "active" {
+					queryTokenUser = u
+				}
 			} else {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-		} else if !checkSession(r) {
+		} else {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 	}
 
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{})
 	if err != nil {
 		log.Printf("[ws/dash] accept error: %v", err)
 		return
@@ -346,23 +424,44 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 
 	u := getUserFromRequest(r)
 	dc := &dashConn{conn: c}
-	if u != nil { dc.userID = u.ID }
+	if u != nil {
+		dc.userID = u.ID
+	} else if queryTokenUser != nil {
+		dc.userID = queryTokenUser.ID
+	}
 	hub.registerDash(dc)
 	defer hub.unregisterDash(dc)
 
 	devices, _ := getDevices()
 	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
 
-	// 定期同步设备状态（10s），修正可能的掉帧
+	// 定期同步设备状态（10s），检测变化时修正掉帧
+	syncDone := make(chan struct{})
+	defer close(syncDone)
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			dc.mu.Lock()
-			devs, _ := getDevices()
-			err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devs)}))
-			dc.mu.Unlock()
-			if err != nil { return }
+		for {
+			select {
+			case <-syncDone:
+				return
+			case <-ticker.C:
+				// P03: 设备列表未变化时跳过 DB 查询
+				hub.mu.RLock()
+				curVersion := hub.deviceVersion
+				hub.mu.RUnlock()
+				if curVersion == dc.lastVersion {
+					continue
+				}
+				dc.lastVersion = curVersion
+				dc.mu.Lock()
+				devs, _ := getDevices()
+				err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devs)}))
+				dc.mu.Unlock()
+				if err != nil {
+					return
+				}
+			}
 		}
 	}()
 

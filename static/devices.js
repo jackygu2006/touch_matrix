@@ -48,16 +48,30 @@ function renderDeviceList() {
   // Restore selection state
   if (activeDeviceId) {
     const dev = devices.find(d => d.id === activeDeviceId);
-    if (!dev || dev.status === 'offline') {
-      document.getElementById('task-msg').style.display = 'block';
-      var dev = devices.find(d => d.id === activeDeviceId); document.getElementById('task-msg').textContent = dev && dev.status === 'unbound' ? '⚠️ 设备已解绑，请重新配对' : '⚠️ 设备离线，请在手机上打开 NFTouch 应用即可自动重连';
+    if (!dev || dev.status === 'offline' || dev.status === 'unbound') {
+      var msg = '';
+      if (dev && dev.status === 'unbound') msg = '⚠ 设备已解绑<br>请重新配对';
+      else if (dev && dev.status === 'offline') msg = '⚠ 设备已离线<br>请在设备上打开 NF Touch App';
+      else msg = '选择一个设备查看实时屏幕';
+      document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;line-height:1.8;">' + msg + '</div>';
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
-      // 设备在线，隐藏离线提示（保留其他任务消息）
+      // 检测 ScreenStreamer 是否卡死（5秒无帧）
+      if (dev.last_frame && new Date(dev.last_frame).getTime() > 0) {
+        var age = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
+        if (age > 5) {
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备在线但无画面<br>请重启无障碍服务或NF Touch</div>';
+          document.getElementById('screen-placeholder').classList.remove('hidden');
+          canvas.classList.add('hidden');
+          return;
+        }
+      }
+      document.getElementById('screen-placeholder').classList.add('hidden');
+      canvas.classList.remove('hidden');
       var el = document.getElementById('task-msg');
-      if (el.textContent.indexOf('离线') >= 0) {
-        el.style.display = 'none';
+      if (el.textContent.indexOf('离线') >= 0 || el.textContent.indexOf('解绑') >= 0) {
+        el.style.visibility = 'hidden';
       }
     }
   }
@@ -92,7 +106,7 @@ function updateDeviceStatus() {
   if (dev.status === 'online') {
     el.textContent = '已连接 · 设备在线 🟢';
   } else {
-    var dev = devices.find(d => d.id === activeDeviceId); el.textContent = dev && dev.status === 'unbound' ? '已连接 · 已解绑' : '已连接 · 设备离线 🔴';
+    var dv = devices.find(d => d.id === activeDeviceId); el.textContent = dv && dv.status === 'unbound' ? '已连接 · 已解绑' : '已连接 · 设备离线 🔴';
   }
   var ci = document.getElementById('cal-info');
   if (offsetX || offsetY) {
@@ -224,7 +238,9 @@ function buildGrid() {
     card.style.cssText = 'width:' + w + ';min-width:150px;background:var(--surface);border-radius:10px;overflow:hidden;border:1px solid var(--border);';
     card.innerHTML = '<div style="padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:6px;">' +
       '<span style="width:6px;height:6px;border-radius:50%;background:' + (d.status==='online'?'var(--online)':'var(--offline)') + ';"></span>' +
-      escHtml(d.name||d.id) + ' <span style="color:var(--text2);">' + escHtml(d.model||'') + '</span></div>';
+      escHtml(d.name||d.id) + ' <span style="color:var(--text2);">' + escHtml(d.model||'') + '</span>' +
+      (d.status==='unbound' ? ' <span style="color:var(--offline);font-size:10px;">已解绑</span>' : d.status==='offline' ? ' <span style="color:var(--offline);font-size:10px;">离线</span>' : '') +
+      '</div>';
     var cvs = document.createElement('canvas');
     cvs.style.cssText = 'width:100%;aspect-ratio:' + (d.resolution||'720x1600').replace('x','/') + ';background:#000;';
     var btns = document.createElement('div');

@@ -10,8 +10,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
-	"sync"
+	"syscall"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -36,8 +37,16 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
-	u, _ := getUserByEmail(req.Email)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+	u, err := getUserByEmail(req.Email)
+	if err != nil {
+		log.Printf("[auth] getUserByEmail error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
 	if u == nil || u.Status == "disabled" {
 		writeJSON(w, 401, map[string]string{"error": "user not found or disabled"})
 		return
@@ -46,10 +55,16 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 401, map[string]string{"error": "wrong password"})
 		return
 	}
-	token, _ := generateJWT(u)
+	token, err := generateJWT(u)
+	if err != nil {
+		log.Printf("[auth] generateJWT error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name: "nftouch_token", Value: token, Path: "/",
 		HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 604800,
+		Secure: r.TLS != nil,
 	})
 	writeJSON(w, 200, map[string]interface{}{
 		"token": token, "email": u.Email, "nickname": u.Nickname, "role": u.Role,
@@ -70,7 +85,12 @@ func handleAuthCheckNew(w http.ResponseWriter, r *http.Request) {
 // Admin: list users
 func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
-		users, _ := getUsersAll()
+		users, err := getUsersAll()
+		if err != nil {
+			log.Printf("[admin] getUsersAll error: %v", err)
+			writeJSON(w, 500, map[string]string{"error": "server error"})
+			return
+		}
 		writeJSON(w, 200, users)
 		return
 	}
@@ -81,9 +101,16 @@ func handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		Nickname   string `json:"nickname"`
 		MaxDevices int    `json:"max_devices"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
 	if req.Email == "" || req.Password == "" {
 		writeJSON(w, 400, map[string]string{"error": "email and password required"})
+		return
+	}
+	if len(req.Password) < 6 {
+		writeJSON(w, 400, map[string]string{"error": "password must be at least 6 characters"})
 		return
 	}
 	if req.MaxDevices <= 0 {
@@ -115,7 +142,10 @@ func handleAdminUser(w http.ResponseWriter, r *http.Request) {
 			Nickname   string `json:"nickname"`
 			MaxDevices int    `json:"max_devices"`
 		}
-		json.NewDecoder(r.Body).Decode(&req)
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, 400, map[string]string{"error": "invalid request"})
+			return
+		}
 		if req.Password != "" {
 			hash, _ := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 			db.Exec("UPDATE users SET password=? WHERE id=?", string(hash), id)
@@ -291,12 +321,21 @@ func handlePostTask(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_, err := db.Exec("DELETE FROM devices WHERE id=?", id)
+	tx, err := db.Begin()
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
-	db.Exec("DELETE FROM device_codes WHERE device_id=?", id)
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM devices WHERE id=?", id); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	tx.Exec("DELETE FROM device_codes WHERE device_id=?", id)
+	if err := tx.Commit(); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
 
@@ -326,6 +365,10 @@ func handlePairingCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
+	if err := db.Ping(); err != nil {
+		writeJSON(w, 503, map[string]string{"status": "unhealthy", "error": err.Error()})
+		return
+	}
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
@@ -400,90 +443,6 @@ func getUserFromRequest(r *http.Request) *User {
 	return u
 }
 
-// Session / Auth
-// ============================================================
-func createSessionToken() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
-
-var sessions = sync.Map{} // token -> expiry time
-
-func setSessionCookie(w http.ResponseWriter, r *http.Request) string {
-	token := createSessionToken()
-	sessions.Store(token, time.Now().Add(24*time.Hour))
-	http.SetCookie(w, &http.Cookie{
-		Name:     "nftouch_session",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   86400,
-	})
-	return token
-}
-
-func checkSession(r *http.Request) bool {
-	cookie, err := r.Cookie("nftouch_session")
-	if err != nil {
-		return false
-	}
-	val, ok := sessions.Load(cookie.Value)
-	if !ok {
-		return false
-	}
-	expiry, ok := val.(time.Time)
-	if !ok || time.Now().After(expiry) {
-		sessions.Delete(cookie.Value)
-		return false
-	}
-	return true
-}
-
-func handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		writeJSON(w, 405, map[string]string{"error": "method not allowed"})
-		return
-	}
-	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid request"})
-		return
-	}
-	if req.Username != "admin" || req.Password != adminPassword {
-		writeJSON(w, 401, map[string]string{"error": "用户名或密码错误"})
-		return
-	}
-	setSessionCookie(w, r)
-	writeJSON(w, 200, map[string]string{"status": "ok"})
-}
-
-func handleAuthCheck(w http.ResponseWriter, r *http.Request) {
-	if checkSession(r) {
-		writeJSON(w, 200, map[string]string{"status": "ok"})
-	} else {
-		writeJSON(w, 401, map[string]string{"status": "unauthorized"})
-	}
-}
-
-func handleLogout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("nftouch_session")
-	if err == nil {
-		sessions.Delete(cookie.Value)
-	}
-	http.SetCookie(w, &http.Cookie{
-		Name:   "nftouch_session",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	})
-	writeJSON(w, 200, map[string]string{"status": "ok"})
-}
-
 // ============================================================
 // Middleware
 // ============================================================
@@ -515,13 +474,11 @@ func jwtAuth(next http.HandlerFunc) http.HandlerFunc {
 // ============================================================
 
 var (
-	staticDir     string
-	adminPassword string
-	listenAddr    string
-	tlsCert       string
-	tlsKey        string
-	dbPath        string
-	sessionSecret string
+	staticDir  string
+	listenAddr string
+	tlsCert    string
+	tlsKey     string
+	dbPath     string
 )
 
 func authStatic(fs http.Handler) http.HandlerFunc {
@@ -539,10 +496,14 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 			fs.ServeHTTP(w, r)
 			return
 		}
-		// Old session cookie (compat)
-		if checkSession(r) {
-			fs.ServeHTTP(w, r)
-			return
+		// JWT from cookie (page loads)
+		if cookie, err := r.Cookie("nftouch_token"); err == nil {
+			if claims, err := validateJWT(cookie.Value); err == nil {
+				if u, _ := getUserByID(claims.UserID); u != nil && u.Status == "active" {
+					fs.ServeHTTP(w, r)
+					return
+				}
+			}
 		}
 		http.ServeFile(w, r, staticDir+"/login.html")
 	}
@@ -550,8 +511,9 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 
 func main() {
 	jwtSecret = []byte(envOrDefault("JWT_SECRET", "change-me"))
-	adminPassword = envOrDefault("ADMIN_PASSWORD", "nf123456")
-	sessionSecret = envOrDefault("SESSION_SECRET", "change-me-please")
+	if string(jwtSecret) == "change-me" {
+		log.Fatalf("FATAL: JWT_SECRET not configured. Set JWT_SECRET environment variable.")
+	}
 	listenAddr = envOrDefault("LISTEN_ADDR", ":8443")
 	tlsCert = os.Getenv("TLS_CERT")
 	tlsKey = os.Getenv("TLS_KEY")
@@ -560,7 +522,6 @@ func main() {
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	log.Printf("=== NFTouch Server MVP ===")
-	log.Printf("Admin password configured")
 	log.Printf("Listen: %s", listenAddr)
 
 	if err := initDB(dbPath); err != nil {
@@ -590,24 +551,28 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	// Helper to reduce repeated middleware chains
+	jwt := jwtAuth
+	admin := func(h http.HandlerFunc) http.HandlerFunc { return jwt(adminOnly(h)) }
+
 	mux.HandleFunc("GET /ws/device", handleDeviceWS)
 	mux.HandleFunc("GET /ws/dash", handleDashWS)
 
 	mux.HandleFunc("POST /api/auth/login", handleAuthLogin)
 	mux.HandleFunc("GET /api/auth/check", handleAuthCheckNew)
-	mux.HandleFunc("GET /api/profile", jwtAuth(handleProfile))
+	mux.HandleFunc("GET /api/profile", jwt(handleProfile))
 	// Admin routes
-	mux.HandleFunc("GET /api/admin/users", jwtAuth(adminOnly(handleAdminUsers)))
-	mux.HandleFunc("POST /api/admin/users", jwtAuth(adminOnly(handleAdminUsers)))
-	mux.HandleFunc("PUT /api/admin/users/{id}", jwtAuth(adminOnly(handleAdminUser)))
-	mux.HandleFunc("DELETE /api/admin/users/{id}", jwtAuth(adminOnly(handleAdminUser)))
-	mux.HandleFunc("PUT /api/admin/users/{id}/toggle", jwtAuth(adminOnly(handleAdminUserToggle)))
+	mux.HandleFunc("GET /api/admin/users", admin(handleAdminUsers))
+	mux.HandleFunc("POST /api/admin/users", admin(handleAdminUsers))
+	mux.HandleFunc("PUT /api/admin/users/{id}", admin(handleAdminUser))
+	mux.HandleFunc("DELETE /api/admin/users/{id}", admin(handleAdminUser))
+	mux.HandleFunc("PUT /api/admin/users/{id}/toggle", admin(handleAdminUserToggle))
 	// Device routes (JWT only)
-	mux.HandleFunc("POST /api/bind", jwtAuth(handleBind))
-	mux.HandleFunc("GET /api/devices", jwtAuth(handleGetDevices))
-	mux.HandleFunc("GET /api/devices/{id}", jwtAuth(handleGetDevice))
-	mux.HandleFunc("DELETE /api/devices/{id}", jwtAuth(handleDeleteDevice))
-	mux.HandleFunc("POST /api/devices/{id}/task", jwtAuth(handlePostTask))
+	mux.HandleFunc("POST /api/bind", jwt(handleBind))
+	mux.HandleFunc("GET /api/devices", jwt(handleGetDevices))
+	mux.HandleFunc("GET /api/devices/{id}", jwt(handleGetDevice))
+	mux.HandleFunc("DELETE /api/devices/{id}", jwt(handleDeleteDevice))
+	mux.HandleFunc("POST /api/devices/{id}/task", jwt(handlePostTask))
 	mux.HandleFunc("POST /api/pairing-code", handlePairingCode)
 	mux.HandleFunc("GET /health", handleHealth)
 
@@ -618,12 +583,34 @@ func main() {
 	log.Printf("Routes registered")
 	log.Printf("Static files: %s", staticDir)
 
+	server := &http.Server{
+		Addr:         listenAddr,
+		Handler:      mux,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigCh
+		log.Printf("Shutting down gracefully...")
+		server.Shutdown(context.Background())
+	}()
+
 	if tlsCert != "" && tlsKey != "" {
 		log.Printf("Starting HTTPS server on %s", listenAddr)
-		log.Fatal(http.ListenAndServeTLS(listenAddr, tlsCert, tlsKey, mux))
+		if err := server.ListenAndServeTLS(tlsCert, tlsKey); err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
 	} else {
 		log.Printf("Starting HTTP server on %s (no TLS)", listenAddr)
-		log.Fatal(http.ListenAndServe(listenAddr, mux))
+		log.Printf("WARNING: Running without TLS. JWT tokens and all traffic are in plaintext.")
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
 	}
 }
 

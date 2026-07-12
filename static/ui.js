@@ -27,11 +27,11 @@ function sendTask() {
 
 function showTaskMsg(text) {
   const el = document.getElementById('task-msg');
-  el.style.display = 'block';
+  el.style.visibility = 'visible';
   el.textContent = text;
   // Auto-hide after 15s
   clearTimeout(el._timeout);
-  el._timeout = setTimeout(() => { el.style.display = 'none'; }, 15000);
+  el._timeout = setTimeout(() => { el.style.visibility = 'hidden'; }, 15000);
 }
 
 // ============================================================
