@@ -498,8 +498,11 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 			if msg.DeviceID != "" {
 				if err := hub.sendToDevice(msg.DeviceID, msg); err != nil {
 					c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{
-						Type: "error", Reason: err.Error(),
+						Type: "error", Reason: fmt.Sprintf("发送命令到设备失败: %s", err.Error()),
 					}))
+					log.Printf("[ws/dash] send command to device %s failed: %v", msg.DeviceID, err)
+				} else {
+					log.Printf("[ws/dash] command %s sent to device %s", msg.Type, msg.DeviceID)
 				}
 			}
 		case "refresh":
