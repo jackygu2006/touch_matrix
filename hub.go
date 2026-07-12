@@ -73,6 +73,8 @@ type Hub struct {
 	dash          map[*dashConn]bool
 	deviceVersion int64
 	lastBroadcast time.Time
+	deviceCache   []Device
+	cacheTime     time.Time
 }
 
 var hub = &Hub{
@@ -87,13 +89,10 @@ func (h *Hub) registerDevice(deviceID string, dc *deviceConn) {
 		oldConn = old.conn
 	}
 	h.devices[deviceID] = dc
-	h.mu.Unlock()
-
 	if oldConn != nil {
-		if err := oldConn.Close(websocket.StatusNormalClosure, "replaced"); err != nil {
-			log.Printf("[hub] close old connection for %s: %v", deviceID, err)
-		}
+		oldConn.Close(websocket.StatusNormalClosure, "replaced")
 	}
+	h.mu.Unlock()
 
 	if err := setDeviceOnline(deviceID); err != nil {
 		log.Printf("[hub] setDeviceOnline error for %s (retrying): %v", deviceID, err)
@@ -166,8 +165,8 @@ func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
 	h.mu.RUnlock()
 
 	for _, dc := range targets {
-		dc.mu.Lock()
 		go func(dc *dashConn) {
+			dc.mu.Lock()
 			defer dc.mu.Unlock()
 			dc.conn.Write(bgCtx, websocket.MessageText, header)
 			dc.conn.Write(bgCtx, websocket.MessageBinary, frameData)
@@ -204,9 +203,8 @@ func filterDevicesForUser(dc *dashConn, devices []Device) []Device {
 }
 
 func (h *Hub) broadcastDeviceList() {
-	// P02: 节流，500ms 内重复调用跳过
-	now := time.Now()
 	h.mu.Lock()
+	now := time.Now()
 	if now.Sub(h.lastBroadcast) < 500*time.Millisecond {
 		h.mu.Unlock()
 		return
@@ -220,7 +218,6 @@ func (h *Hub) broadcastDeviceList() {
 		return
 	}
 
-	// 注入各设备的 lastFrame 时间
 	h.mu.RLock()
 	for i := range devices {
 		if dc, ok := h.devices[devices[i].ID]; ok {
@@ -232,16 +229,7 @@ func (h *Hub) broadcastDeviceList() {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for dc := range h.dash {
-		// Filter by user
-		var userDevices []Device
-		for _, d := range devices {
-			if dc.userID == "" || d.UserID == "" || d.UserID == dc.userID {
-				userDevices = append(userDevices, d)
-			}
-		}
-		if userDevices == nil {
-			userDevices = []Device{}
-		}
+		userDevices := filterDevicesForUser(dc, devices)
 		msg, err := json.Marshal(WSMessage{Type: "device_list", Devices: userDevices})
 		if err != nil {
 			log.Printf("[hub] marshal device_list error: %v", err)

@@ -53,12 +53,14 @@ type DeviceCode struct {
 
 func initDB(dbPath string) error {
 	var err error
-	db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&_cache_size=-8000")
 	if err != nil {
 		return err
 	}
-	db.SetMaxOpenConns(5)
-	db.SetMaxIdleConns(2)
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
 
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS schema_version (
@@ -167,6 +169,31 @@ func setDeviceOffline(deviceID string) error {
 
 func getDevices() ([]Device, error) {
 	rows, err := db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, COALESCE(status,'offline') as status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var devices []Device
+	for rows.Next() {
+		var d Device
+		var lastSeen sql.NullString
+		if err := rows.Scan(&d.ID, &d.UserID, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt); err != nil {
+			return nil, err
+		}
+		if lastSeen.Valid {
+			d.LastSeen = &lastSeen.String
+		}
+		devices = append(devices, d)
+	}
+	if devices == nil {
+		devices = []Device{}
+	}
+	return devices, nil
+}
+
+func getDevicesByUserID(userID string) ([]Device, error) {
+	rows, err := db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, COALESCE(status,'offline') as status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE user_id=? OR user_id='' ORDER BY created_at ASC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +359,16 @@ func validatePairingCode(code string) (string, error) {
 
 func cleanupExpiredCodes() {
 	db.Exec(`DELETE FROM device_codes WHERE expires_at < datetime('now', '-1 hour')`)
+}
+
+func cleanupPairingRateLimit() {
+	now := time.Now().Unix()
+	pairingRateLimit.Range(func(key, value interface{}) bool {
+		if now-value.(int64) > 300 {
+			pairingRateLimit.Delete(key)
+		}
+		return true
+	})
 }
 
 func generateCode() string {

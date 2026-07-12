@@ -271,21 +271,17 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 
 func handleGetDevices(w http.ResponseWriter, r *http.Request) {
 	u := getUserFromRequest(r)
-	devices, err := getDevices()
+	var devices []Device
+	var err error
+	if u != nil {
+		devices, err = getDevicesByUserID(u.ID)
+	} else {
+		devices, err = getDevices()
+	}
 	if err != nil {
 		log.Printf("[api] getDevices error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
-	}
-	// Filter: everyone sees only their own devices
-	if u != nil {
-		var filtered []Device
-		for _, d := range devices {
-			if d.UserID == u.ID || d.UserID == "" {
-				filtered = append(filtered, d)
-			}
-		}
-		devices = filtered
 	}
 	writeJSON(w, 200, devices)
 }
@@ -576,6 +572,7 @@ func main() {
 		for {
 			time.Sleep(5 * time.Minute)
 			cleanupExpiredCodes()
+			cleanupPairingRateLimit()
 		}
 	}()
 
