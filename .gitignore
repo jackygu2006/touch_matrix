@@ -4,3 +4,5 @@ nftouch.log
 *.db
 deploy.sh
 nftouch-server
+nftouch-server-macos
+apkclaw-server
