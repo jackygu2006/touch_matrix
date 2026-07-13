@@ -13,7 +13,6 @@ let canvas = document.getElementById('screen-canvas');
 let ctx = canvas.getContext('2d');
 let img = new Image();
 let devW = 1080, devH = 1920;
-let offsetX = 0, offsetY = 0;
 let gridMode = false;
 let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 

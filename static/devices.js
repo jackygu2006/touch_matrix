@@ -34,10 +34,11 @@ function renderDeviceList() {
   }
 
   container.innerHTML = sorted.map(d => {
-    var dotClass = d.status === 'online' ? (hasAllPerms(d) ? 'online' : 'warn') : 'offline';
-    var missing = getMissingPerms(d);
+    var hasData = d.permissions && Object.keys(d.permissions).length > 0;
+    var dotClass = d.status === 'online' ? (hasData ? (hasAllPerms(d) ? 'online' : 'warn') : 'loading') : 'offline';
+    var missing = hasData ? getMissingPerms(d) : [];
     var warnHtml = missing.length > 0 ? ' <span style="color:var(--warn);font-size:10px;" title="缺少权限: ' + missing.join(', ') + '">⚠ ' + missing.slice(0,2).join('/') + (missing.length > 2 ? '...' : '') + '</span>' : '';
-    var screenOffHtml = d.screen_on === false ? ' <span style="color:var(--info);font-size:10px;" title="屏幕已关闭">◉ 息屏</span>' : '';
+    var screenOffHtml = (hasData && d.screen_on === false) ? ' <span style="color:var(--info);font-size:10px;" title="屏幕已关闭">◉ 息屏</span>' : '';
     return `
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
       <div class="dot ${dotClass}"></div>
@@ -45,7 +46,6 @@ function renderDeviceList() {
         <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : warnHtml + screenOffHtml}</div>
         <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · 电量 ${d.battery}%</div>
       </div>
-      <span onclick="event.stopPropagation();showDeviceSettings('${d.id}')" style="cursor:pointer;opacity:.5;font-size:14px;padding:4px;" title="设备设置">⚙</span>
       <span onclick="event.stopPropagation();deleteDevice('${d.id}')" style="cursor:pointer;opacity:.3;font-size:16px;padding:4px;font-weight:bold;" title="删除设备">×</span>
     </div>
   `}).join('');
@@ -64,8 +64,10 @@ function renderDeviceList() {
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
-      // 权限检测：WebSocket 在线但权限不完整，显示黄色警告
-      var missingPerms = getMissingPerms(dev);
+      var hasData = dev.permissions && Object.keys(dev.permissions).length > 0;
+
+      // 权限检测：WebSocket 在线但权限不完整，显示黄色警告（数据未就绪时不显示）
+      var missingPerms = hasData ? getMissingPerms(dev) : [];
       var permWarnEl = document.getElementById('perm-warning');
       if (missingPerms.length > 0) {
         permWarnEl.innerHTML = '⚠ 缺少权限：' + missingPerms.join('、') + ' — 请在手机上开启';
@@ -74,9 +76,9 @@ function renderDeviceList() {
         permWarnEl.style.display = 'none';
       }
 
-      // 屏幕状态检测：屏幕关闭时显示蓝色提示
+      // 屏幕状态检测：数据未就绪时不显示
       var screenWarnEl = document.getElementById('screen-warning');
-      if (dev.screen_on === false) {
+      if (hasData && dev.screen_on === false) {
         screenWarnEl.style.display = 'block';
       } else {
         screenWarnEl.style.display = 'none';
@@ -130,10 +132,6 @@ function hasAllPerms(dev) {
 
 function selectDevice(id) {
   activeDeviceId = id;
-  // 加载该设备的校准偏移
-  var s = JSON.parse(localStorage.getItem('nftouch_cal_' + id) || '{}');
-  offsetX = s.x || 0;
-  offsetY = s.y || 0;
   // 如果在 Grid 模式，退出并切换到单设备模式
   if (gridMode) toggleGrid();
   send({type: 'watch_one', device_id: id});
@@ -156,12 +154,6 @@ function updateDeviceStatus() {
     el.textContent = '已连接 · 设备在线 🟢';
   } else {
     var dv = devices.find(d => d.id === activeDeviceId); el.textContent = dv && dv.status === 'unbound' ? '已连接 · 已解绑' : '已连接 · 设备离线 🔴';
-  }
-  var ci = document.getElementById('cal-info');
-  if (offsetX || offsetY) {
-    ci.textContent = '校准 ' + offsetX + ',' + offsetY;
-  } else {
-    ci.textContent = '';
   }
 }
 
@@ -190,10 +182,10 @@ canvas.addEventListener('mouseup', (e) => {
   const dy = Math.abs(endY - touchStart.y);
   const dt = Date.now() - touchStartTime;
 
-  const devStartX = Math.round(touchStart.x * scaleX) - offsetX;
-  const devStartY = Math.round(touchStart.y * scaleY) - offsetY;
-  const devEndX = Math.round(endX * scaleX) - offsetX;
-  const devEndY = Math.round(endY * scaleY) - offsetY;
+  const devStartX = Math.round(touchStart.x * scaleX);
+  const devStartY = Math.round(touchStart.y * scaleY);
+  const devEndX = Math.round(endX * scaleX);
+  const devEndY = Math.round(endY * scaleY);
 
   if (dx < 8 && dy < 8 && dt < 400) {
     send({type: 'cmd_tap', device_id: activeDeviceId, x: devStartX, y: devStartY});
@@ -224,10 +216,10 @@ canvas.addEventListener('touchend', (e) => {
   const dy = Math.abs(endY - touchStart.y);
   const dt = Date.now() - touchStartTime;
 
-  const devStartX = Math.round(touchStart.x * scaleX) - offsetX;
-  const devStartY = Math.round(touchStart.y * scaleY) - offsetY;
-  const devEndX = Math.round(endX * scaleX) - offsetX;
-  const devEndY = Math.round(endY * scaleY) - offsetY;
+  const devStartX = Math.round(touchStart.x * scaleX);
+  const devStartY = Math.round(touchStart.y * scaleY);
+  const devEndX = Math.round(endX * scaleX);
+  const devEndY = Math.round(endY * scaleY);
 
   if (dx < 8 && dy < 8 && dt < 400) {
     send({type: 'cmd_tap', device_id: activeDeviceId, x: devStartX, y: devStartY});
@@ -366,15 +358,14 @@ function buildGrid() {
         var rect = cvsEl.getBoundingClientRect();
         var sx = cvsEl.width || devW || 720;
         var sy = cvsEl.height || devH || 1600;
-        var ox = JSON.parse(localStorage.getItem('nftouch_cal_' + devId) || '{}');
         var endX = Math.round((e.clientX - rect.left) * (sx / rect.width));
         var endY = Math.round((e.clientY - rect.top) * (sy / rect.height));
         var dx = Math.abs(endX - touchStart.x);
         var dy = Math.abs(endY - touchStart.y);
         if (dx < 8 && dy < 8 && Date.now() - touchStartTime < 400) {
-          send({type: 'cmd_tap', device_id: d.id, x: touchStart.x - (ox.x||0), y: touchStart.y - (ox.y||0)});
+          send({type: 'cmd_tap', device_id: d.id, x: touchStart.x, y: touchStart.y});
         } else {
-          send({type: 'cmd_swipe', device_id: d.id, x1: touchStart.x - (ox.x||0), y1: touchStart.y - (ox.y||0), x2: endX - (ox.x||0), y2: endY - (ox.y||0), duration: Math.min(Date.now() - touchStartTime, 1000)});
+          send({type: 'cmd_swipe', device_id: d.id, x1: touchStart.x, y1: touchStart.y, x2: endX, y2: endY, duration: Math.min(Date.now() - touchStartTime, 1000)});
         }
         touchStart = null;
       });

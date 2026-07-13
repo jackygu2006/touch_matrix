@@ -60,30 +60,22 @@
       </div>
       <div id="grid-container" style="display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;width:100%;"></div>
     </div>
-    <div id="cal-bar" style="background:var(--accent);color:#fff;padding:8px 20px;font-size:12px;display:none;align-items:center;gap:12px;">
-      <span id="cal-bar-text">校准中...</span>
-      <span id="cal-bar-step" style="opacity:.7;"></span>
-      <button onclick="calNextStep()" id="cal-bar-btn" style="margin-left:auto;padding:4px 12px;border:1px solid rgba(255,255,255,.5);border-radius:6px;background:transparent;color:#fff;cursor:pointer;font-size:11px;display:none;">下一步</button>
-      <button onclick="cancelCalibration()" style="padding:4px 8px;border:none;background:transparent;color:rgba(255,255,255,.6);cursor:pointer;font-size:16px;">×</button>
-    </div>
     <div id="control-bar">
-      <button class="quick-btn warn" onclick="sendKey('lock')" title="锁屏">锁屏</button>
       <button class="quick-btn" onclick="sendKey('home')" title="主页">主页</button>
       <button class="quick-btn" onclick="sendKey('back')" title="返回">返回</button>
-      <span style="color:var(--border);margin:0 2px;user-select:none;">│</span>
-      <button class="quick-btn gesture" onclick="sendGesture('up')" title="上滑">↑ 上滑</button>
-      <button class="quick-btn gesture" onclick="sendGesture('down')" title="下滑">↓ 下滑</button>
-      <button class="quick-btn gesture" onclick="sendGesture('left')" title="左滑">← 左滑</button>
-      <button class="quick-btn gesture" onclick="sendGesture('right')" title="右滑">→ 右滑</button>
-      <button class="quick-btn gesture" onclick="sendGesture('notify')" title="拉下通知栏">🔔 通知</button>
-      <button class="quick-btn gesture" onclick="sendGesture('home_gesture')" title="应用">🏠 应用</button>
+      <!-- <span style="color:var(--border);margin:0 2px;user-select:none;">│</span> -->
+      <button class="quick-btn" onclick="sendGesture('up')" title="上滑">↑ 上滑</button>
+      <button class="quick-btn" onclick="sendGesture('down')" title="下滑">↓ 下滑</button>
+      <button class="quick-btn" onclick="sendGesture('left')" title="左滑">← 左滑</button>
+      <button class="quick-btn" onclick="sendGesture('right')" title="右滑">→ 右滑</button>
+      <button class="quick-btn" onclick="sendGesture('notify')" title="拉下通知栏">通知栏</button>
+      <button class="quick-btn warn" onclick="sendKey('lock')" title="锁屏">锁屏</button>
       <input id="text-input" placeholder="发送文字到手机..." onkeydown="if(event.key==='Enter'){sendText();event.preventDefault();}">
       <button class="quick-btn" onclick="sendText()" title="将文字粘贴到手机当前输入框">发送</button>
     </div>
     <div id="status-bar">
       <span id="status-left">未连接</span>
       <span id="status-right">
-        <span id="cal-info" style="font-size:11px;color:var(--text2);"></span>
         &nbsp;<a href="#" onclick="send({type:'refresh'});return false;" style="color:var(--accent);text-decoration:none;">刷新</a>
       </span>
     </div>
@@ -120,7 +112,6 @@
     <h3 id="dev-settings-title">设备设置</h3>
     <div id="dev-settings-content"></div>
     <div class="actions" style="margin-top:12px;">
-      <button class="quick-btn" id="cal-start-btn" onclick="startCalibration()">开始校准</button>
       <button class="btn-cancel" onclick="document.getElementById('dev-settings-modal').classList.add('hidden')">关闭</button>
     </div>
   </div>

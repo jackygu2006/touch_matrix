@@ -271,7 +271,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}()
 	c.SetReadLimit(2 << 20) // 2MB for screen frames
 
-	dc := &deviceConn{conn: c}
+	dc := &deviceConn{conn: c, screenOn: true}
 	var deviceID string
 
 	_, msgBytes, err := c.Read(bgCtx)
@@ -402,8 +402,8 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 				case "status":
 					if msg.Info != nil {
 						var info struct {
-							Battery     int              `json:"battery"`
-							ScreenOn    bool             `json:"screen_on"`
+							Battery     int             `json:"battery"`
+							ScreenOn    bool            `json:"screen_on"`
 							Permissions map[string]bool `json:"permissions"`
 						}
 						json.Unmarshal(msg.Info, &info)
