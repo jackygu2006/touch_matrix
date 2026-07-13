@@ -33,22 +33,27 @@ function renderDeviceList() {
     return;
   }
 
-  container.innerHTML = sorted.map(d => `
+  container.innerHTML = sorted.map(d => {
+    var dotClass = d.status === 'online' ? (hasAllPerms(d) ? 'online' : 'warn') : 'offline';
+    var missing = getMissingPerms(d);
+    var warnHtml = missing.length > 0 ? ' <span style="color:var(--warn);font-size:10px;" title="缺少权限: ' + missing.join(', ') + '">⚠ ' + missing.slice(0,2).join('/') + (missing.length > 2 ? '...' : '') + '</span>' : '';
+    return `
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
-      <div class="dot ${d.status === 'online' ? 'online' : 'offline'}"></div>
+      <div class="dot ${dotClass}"></div>
       <div class="info">
-        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : ''}</div>
+        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : warnHtml}</div>
         <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · 电量 ${d.battery}%</div>
       </div>
       <span onclick="event.stopPropagation();showDeviceSettings('${d.id}')" style="cursor:pointer;opacity:.5;font-size:14px;padding:4px;" title="设备设置">⚙</span>
       <span onclick="event.stopPropagation();deleteDevice('${d.id}')" style="cursor:pointer;opacity:.3;font-size:16px;padding:4px;font-weight:bold;" title="删除设备">×</span>
     </div>
-  `).join('');
+  `}).join('');
 
   // Restore selection state
   if (activeDeviceId) {
     const dev = devices.find(d => d.id === activeDeviceId);
     if (!dev || dev.status === 'offline' || dev.status === 'unbound') {
+      document.getElementById('perm-warning').style.display = 'none';
       var msg = '';
       if (dev && dev.status === 'unbound') msg = '⚠ 设备已解绑<br>请重新配对';
       else if (dev && dev.status === 'offline') msg = '⚠ 设备已离线<br>请在设备上打开 NF Touch App';
@@ -57,6 +62,16 @@ function renderDeviceList() {
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
+      // 权限检测：WebSocket 在线但权限不完整，显示黄色警告
+      var missingPerms = getMissingPerms(dev);
+      var permWarnEl = document.getElementById('perm-warning');
+      if (missingPerms.length > 0) {
+        permWarnEl.innerHTML = '⚠ 缺少权限：' + missingPerms.join('、') + ' — 请在手机上开启';
+        permWarnEl.style.display = 'block';
+      } else {
+        permWarnEl.style.display = 'none';
+      }
+
       // 检测设备是否无数据（5秒无帧=可能卡死，8秒无消息=可能离线）
       if (dev.last_frame && new Date(dev.last_frame).getTime() > 0) {
         var age = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
@@ -84,6 +99,24 @@ function renderDeviceList() {
 }
 
 function escHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+function getMissingPerms(dev) {
+  if (!dev.permissions) return [];
+  var names = {accessibility:'无障碍服务', notification:'常驻通知', overlay:'悬浮窗', battery_opt:'电池优化', storage:'存储权限'};
+  var missing = [];
+  for (var k in dev.permissions) {
+    if (!dev.permissions[k]) missing.push(names[k] || k);
+  }
+  return missing;
+}
+
+function hasAllPerms(dev) {
+  if (!dev.permissions) return true;
+  for (var k in dev.permissions) {
+    if (!dev.permissions[k]) return false;
+  }
+  return true;
+}
 
 function selectDevice(id) {
   activeDeviceId = id;

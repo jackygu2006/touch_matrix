@@ -29,8 +29,10 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
     if (!resp.ok) { localStorage.removeItem('nftouch_token'); location.href = '/login.html'; return; }
     var data = await resp.json();
     if (data.role === 'admin') {
-      document.getElementById('sidebar-footer').innerHTML += '<button id="admin-btn" onclick="showAdminPanel()" style="width:100%;margin-top:8px;padding:8px;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer;font-size:12px;">用户管理</button>';
+      document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()">用户管理</button>';
     }
+    // 版本号插入到 admin 按钮下方
+    document.getElementById('sidebar-footer').innerHTML += '<div id="server-version" style="padding:8px 0 0 0;font-size:10px;color:var(--text2);text-align:center;"></div>';
     var ui = document.getElementById('user-info');
   ui.style.display = 'block';
   var txt = (data.nickname || data.email);
@@ -38,6 +40,13 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
   if (data.role === 'admin') txt += ' · 管理员';
   ui.textContent = txt;
   } catch(e) { location.href = '/login.html'; return; }
+
+  // 拉取服务端版本号
+  fetch('/api/version').then(r => r.json()).then(d => {
+    var el = document.getElementById('server-version');
+    if (el && d.version) el.textContent = 'v' + d.version;
+  }).catch(function(){});
+
   // connect() is called at end of ui.js
 })();
 

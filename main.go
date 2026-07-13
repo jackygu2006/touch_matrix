@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +23,27 @@ import (
 
 var bgCtx = context.Background()
 var db *sql.DB
+
+// 版本自增：格式 2026.7.13.1（年.月.日.当日序号），每次启动自动递增
+func bumpVersion() string {
+	today := time.Now().Format("2006.1.2")
+	data, _ := os.ReadFile("VERSION")
+	current := strings.TrimSpace(string(data))
+	newVer := today + ".1"
+	if strings.HasPrefix(current, today+".") {
+		parts := strings.Split(current, ".")
+		if seq, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+			newVer = today + "." + strconv.Itoa(seq+1)
+		}
+	}
+	_ = os.WriteFile("VERSION", []byte(newVer+"\n"), 0644)
+	return newVer
+}
+
+func getVersion() string {
+	data, _ := os.ReadFile("VERSION")
+	return strings.TrimSpace(string(data))
+}
 
 // REST API Handlers
 // ============================================================
@@ -547,7 +569,9 @@ func main() {
 	staticDir = envOrDefault("STATIC_DIR", "./static")
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Printf("=== NFTouch Server MVP ===")
+
+	version := bumpVersion()
+	log.Printf("=== NFTouch Server v%s ===", version)
 	log.Printf("Listen: %s", listenAddr)
 
 	if err := initDB(dbPath); err != nil {
@@ -602,6 +626,10 @@ func main() {
 	mux.HandleFunc("POST /api/devices/{id}/task", jwt(handlePostTask))
 	mux.HandleFunc("POST /api/pairing-code", handlePairingCode)
 	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"version":"` + getVersion() + `"}`))
+	})
 
 	staticDir := envOrDefault("STATIC_DIR", "./static")
 	fs := http.FileServer(http.Dir(staticDir))

@@ -29,7 +29,7 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
     if (!resp.ok) { localStorage.removeItem('nftouch_token'); location.href = '/login.html'; return; }
     var data = await resp.json();
     if (data.role === 'admin') {
-      document.getElementById('sidebar-footer').innerHTML += '<button id="admin-btn" onclick="showAdminPanel()" style="width:100%;margin-top:8px;padding:8px;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer;font-size:12px;">用户管理</button>';
+      document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()">用户管理</button>';
     }
     var ui = document.getElementById('user-info');
   ui.style.display = 'block';

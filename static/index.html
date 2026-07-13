@@ -9,7 +9,7 @@
 <div id="app">
   <div id="sidebar">
     <div id="sidebar-header">
-      <h2>小奈Matrix <span style="font-size:10px;color:var(--text2);font-weight:400;">v0.1.0</span></h2>
+      <h2>小奈 Matrix</h2>
       <div style="display:flex;gap:6px;">
         <button id="grid-toggle" onclick="toggleGrid()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="综合看板">▦</button>
         <button onclick="logout()" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="登出">⤺</button>
@@ -23,7 +23,7 @@
       <button onclick="sortDevices('time')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">绑定时间</button>
     </div>
     <div id="sidebar-footer">
-      <button id="bind-btn" onclick="showBindModal()">+ 绑定设备</button>
+      <button class="sidebar-btn" onclick="showBindModal()">+ 绑定设备</button>
     </div>
   </div>
    <div id="main">
@@ -34,6 +34,7 @@
           选择一个设备查看实时屏幕
         </div>
         <canvas id="screen-canvas" class="hidden"></canvas>
+        <div id="perm-warning" style="display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.15);border:1px solid var(--warn);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--warn);text-align:center;z-index:10;white-space:nowrap;"></div>
       </div>
       <div id="task-panel">
         <div id="task-panel-header">

@@ -20,18 +20,19 @@ import (
 
 
 type Device struct {
-	ID         string  `json:"id"`
-	LastFrame  time.Time `json:"last_frame"`
-	UserID     string  `json:"user_id,omitempty"`
-	Name       string  `json:"name"`
-	TokenHash  string  `json:"-"`
-	Status     string  `json:"status"`
-	Brand      string  `json:"brand"`
-	Model      string  `json:"model"`
-	Resolution string  `json:"resolution"`
-	Battery    int     `json:"battery"`
-	LastSeen   *string `json:"last_seen"`
-	CreatedAt  string  `json:"created_at"`
+	ID          string           `json:"id"`
+	LastFrame   time.Time        `json:"last_frame"`
+	UserID      string           `json:"user_id,omitempty"`
+	Name        string           `json:"name"`
+	TokenHash   string           `json:"-"`
+	Status      string           `json:"status"`
+	Brand       string           `json:"brand"`
+	Model       string           `json:"model"`
+	Resolution  string           `json:"resolution"`
+	Battery     int              `json:"battery"`
+	Permissions map[string]bool  `json:"permissions,omitempty"`
+	LastSeen    *string          `json:"last_seen"`
+	CreatedAt   string           `json:"created_at"`
 }
 
 type User struct {

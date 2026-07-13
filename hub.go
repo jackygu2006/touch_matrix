@@ -53,10 +53,11 @@ type WSMessage struct {
 }
 
 type deviceConn struct {
-	conn      *websocket.Conn
-	deviceID  string
-	lastFrame time.Time
-	mu        sync.Mutex
+	conn        *websocket.Conn
+	deviceID    string
+	lastFrame   time.Time
+	permissions map[string]bool
+	mu          sync.Mutex
 }
 
 type dashConn struct {
@@ -229,6 +230,7 @@ func (h *Hub) broadcastDeviceList() {
 	for i := range devices {
 		if dc, ok := h.devices[devices[i].ID]; ok {
 			devices[i].LastFrame = dc.lastFrame
+			devices[i].Permissions = dc.permissions
 		}
 	}
 	h.mu.RUnlock()
@@ -398,11 +400,15 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 				case "status":
 					if msg.Info != nil {
 						var info struct {
-							Battery int `json:"battery"`
+							Battery     int              `json:"battery"`
+							Permissions map[string]bool `json:"permissions"`
 						}
 						json.Unmarshal(msg.Info, &info)
 						db.Exec(`UPDATE devices SET battery=?, last_seen=? WHERE id=?`,
 							info.Battery, time.Now().UTC().Format(time.RFC3339), deviceID)
+						dc.mu.Lock()
+						dc.permissions = info.Permissions
+						dc.mu.Unlock()
 					}
 				default:
 					log.Printf("[ws/device] %s unknown message type: %s", deviceID, msg.Type)
