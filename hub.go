@@ -367,15 +367,16 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		// 120s 读超时：设备断网后 TCP 可能不发送 RST，
-		// 超时触发 read 失败 → deffer unregisterDevice 清理
-		readCtx, cancel := context.WithTimeout(bgCtx, 120*time.Second)
+		// 15s 读超时：设备每 5s 发送 device_ping，3 倍容错即可快速检测断连
+		readCtx, cancel := context.WithTimeout(bgCtx, 15*time.Second)
 		msgType, data, err := c.Read(readCtx)
 		cancel()
 		if err != nil {
 			log.Printf("[ws/device] %s read error: %v", deviceID, err)
 			return
 		}
+
+		dc.lastFrame = time.Now()
 
 		if msgType == websocket.MessageBinary {
 			hub.broadcastFrame(deviceID, data)
@@ -527,6 +528,33 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 		case "refresh":
 			devices, _ := getDevices()
 			c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
+		}
+	}
+}
+
+func (h *Hub) Start() {
+	go h.watchdog()
+}
+
+func (h *Hub) watchdog() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.checkDevices()
+		go h.broadcastDeviceList()
+	}
+}
+
+func (h *Hub) checkDevices() {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for deviceID, dc := range h.devices {
+		dc.mu.Lock()
+		age := time.Since(dc.lastFrame)
+		dc.mu.Unlock()
+		if age > 10*time.Second {
+			log.Printf("[hub] watchdog: device %s no message for %.0fs, closing", deviceID, age.Seconds())
+			dc.conn.Close(websocket.StatusNormalClosure, "watchdog: no data")
 		}
 	}
 }

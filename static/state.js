@@ -102,6 +102,10 @@ function connect() {
           dc.img.onload = function() {
             dc.canvas.width = dc.img.naturalWidth;
             dc.canvas.height = dc.img.naturalHeight;
+            // 同步 CSS 宽高比与实际帧尺寸，防止 Grid 模式点击偏移
+            if (dc.img.naturalHeight > 0) {
+              dc.canvas.style.aspectRatio = (dc.img.naturalWidth / dc.img.naturalHeight).toString();
+            }
             dc.ctx.drawImage(dc.img, 0, 0);
             URL.revokeObjectURL(url);
           };

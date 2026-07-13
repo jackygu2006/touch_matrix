@@ -610,6 +610,8 @@ func main() {
 	log.Printf("Routes registered")
 	log.Printf("Static files: %s", staticDir)
 
+	hub.Start()
+
 	server := &http.Server{
 		Addr:         listenAddr,
 		Handler:      mux,

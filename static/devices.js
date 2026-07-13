@@ -57,9 +57,15 @@ function renderDeviceList() {
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
-      // 检测 ScreenStreamer 是否卡死（5秒无帧）
+      // 检测设备是否无数据（5秒无帧=可能卡死，8秒无消息=可能离线）
       if (dev.last_frame && new Date(dev.last_frame).getTime() > 0) {
         var age = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
+        if (age > 8) {
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备可能已离线<br>超过 ' + Math.round(age) + ' 秒无数据，正在确认...</div>';
+          document.getElementById('screen-placeholder').classList.remove('hidden');
+          canvas.classList.add('hidden');
+          return;
+        }
         if (age > 5) {
           document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备在线但无画面<br>请重启无障碍服务或NF Touch</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
@@ -288,22 +294,17 @@ function buildGrid() {
       var touchStart = null, touchStartTime = 0;
       cvsEl.addEventListener('mousedown', function(e) {
         var rect = cvsEl.getBoundingClientRect();
-        var sx = devW, sy = devH;
-        if (d.resolution) {
-          var parts = d.resolution.split('x');
-          if (parts.length === 2) { sx = parseInt(parts[0])||720; sy = parseInt(parts[1])||1600; }
-        }
+        // 使用 canvas 像素尺寸（与 JPEG 流一致），而非设备屏幕分辨率
+        var sx = cvsEl.width || devW || 720;
+        var sy = cvsEl.height || devH || 1600;
         touchStart = { x: Math.round((e.clientX - rect.left) * (sx / rect.width)), y: Math.round((e.clientY - rect.top) * (sy / rect.height)) };
         touchStartTime = Date.now();
       });
       cvsEl.addEventListener('mouseup', function(e) {
         if (!touchStart) return;
         var rect = cvsEl.getBoundingClientRect();
-        var sx = devW, sy = devH;
-        if (d.resolution) {
-          var parts = d.resolution.split('x');
-          if (parts.length === 2) { sx = parseInt(parts[0])||720; sy = parseInt(parts[1])||1600; }
-        }
+        var sx = cvsEl.width || devW || 720;
+        var sy = cvsEl.height || devH || 1600;
         var ox = JSON.parse(localStorage.getItem('nftouch_cal_' + devId) || '{}');
         var endX = Math.round((e.clientX - rect.left) * (sx / rect.width));
         var endY = Math.round((e.clientY - rect.top) * (sy / rect.height));
