@@ -102,10 +102,6 @@ function renderDeviceList() {
       }
       document.getElementById('screen-placeholder').classList.add('hidden');
       canvas.classList.remove('hidden');
-      var el = document.getElementById('task-msg');
-      if (el.textContent.indexOf('离线') >= 0 || el.textContent.indexOf('解绑') >= 0) {
-        el.style.visibility = 'hidden';
-      }
     }
   }
 }
@@ -137,12 +133,14 @@ function selectDevice(id) {
   send({type: 'watch_one', device_id: id});
   renderDeviceList();
   updateDeviceStatus();
+  setTaskButton(false);
+  if (typeof refreshTaskHistory === 'function') refreshTaskHistory();
 }
 
 function updateDeviceStatus() {
   const el = document.getElementById('status-left');
   if (!activeDeviceId) {
-    el.textContent = document.getElementById('conn-dot').style.background === 'rgb(34, 197, 94)' ? '已连接' : '未连接';
+    el.textContent = '未连接';
     return;
   }
   const dev = devices.find(d => d.id === activeDeviceId);

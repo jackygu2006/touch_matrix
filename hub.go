@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,10 +45,12 @@ type WSMessage struct {
 	Duration int             `json:"duration,omitempty"`
 	Text     string          `json:"text,omitempty"`
 	Prompt   string          `json:"prompt,omitempty"`
+	TaskID   int64           `json:"task_id,omitempty"`
 	Key      string          `json:"key,omitempty"`
 	Token    string          `json:"token,omitempty"`
 	Info     json.RawMessage `json:"info,omitempty"`
 	Reason   string          `json:"reason,omitempty"`
+	Time     string          `json:"time,omitempty"`
 	Devices  []Device        `json:"devices,omitempty"`
 	Device   *Device         `json:"device,omitempty"`
 }
@@ -387,6 +390,9 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 		} else {
 			var msg WSMessage
 			if json.Unmarshal(data, &msg) == nil {
+				if msg.Type == "task_status" {
+					log.Printf("[debug] received task_status from device=%s text=%.80s task_id=%d", deviceID, msg.Text, msg.TaskID)
+				}
 				switch msg.Type {
 				case "pong":
 				case "device_ping":
@@ -398,7 +404,26 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 					db.Exec("UPDATE devices SET status='unbound' WHERE id=?", deviceID)
 					go hub.broadcastDeviceList()
 				case "task_status":
-					hub.broadcastToDash(WSMessage{Type: "task_status", DeviceID: deviceID, Text: msg.Text})
+					status := "running"
+					if strings.Contains(msg.Text, "完成任务") || strings.Contains(msg.Text, "任务完成") || strings.Contains(msg.Text, "✅") {
+						status = "completed"
+					} else if strings.Contains(msg.Text, "失败") || strings.Contains(msg.Text, "错误") {
+						status = "failed"
+					} else if strings.Contains(msg.Text, "取消") {
+						status = "cancelled"
+					}
+					if msg.TaskID > 0 {
+						log.Printf("[task] device=%s task_id=%d status=%s text=%.80s", deviceID, msg.TaskID, status, msg.Text)
+						updateTaskRecord(msg.TaskID, status, msg.Text)
+					} else {
+						var id int64
+						db.QueryRow("SELECT id FROM task_history WHERE device_id=? ORDER BY created_at DESC LIMIT 1", deviceID).Scan(&id)
+						log.Printf("[task] device=%s task_id=0(fallback→%d) status=%s text=%.80s", deviceID, id, status, msg.Text)
+						if id > 0 {
+							updateTaskRecord(id, status, msg.Text)
+						}
+					}
+					hub.broadcastToDash(WSMessage{Type: "task_status", DeviceID: deviceID, TaskID: msg.TaskID, Text: msg.Text, Time: time.Now().Format("15:04:05")})
 				case "status":
 					if msg.Info != nil {
 						var info struct {
@@ -521,7 +546,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 			dc.watchAll = false
 			dc.deviceID = msg.DeviceID
 			log.Printf("[ws/dash] watching one: %s", msg.DeviceID)
-		case "cmd_tap", "cmd_swipe", "cmd_input", "cmd_task", "cmd_key":
+		case "cmd_tap", "cmd_swipe", "cmd_input", "cmd_task", "cmd_key", "cmd_cancel_task":
 			if msg.DeviceID == "" {
 				msg.DeviceID = dc.deviceID
 			}

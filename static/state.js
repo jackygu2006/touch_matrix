@@ -50,12 +50,12 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 })();
 
 function toast(msg, style) {
-  var el = document.getElementById('task-msg');
-  el.style.display = 'block';
+  var el = document.getElementById('status-left');
+  var prev = el.textContent;
   el.textContent = msg;
-  el.style.color = style === 'error' ? '#f87171' : style === 'success' ? '#22c55e' : 'var(--text2)';
+  el.style.color = style === 'error' ? '#f87171' : style === 'success' ? '#22c55e' : '';
   clearTimeout(el._timeout);
-  el._timeout = setTimeout(function() { el.style.display = 'none'; }, 3000);
+  el._timeout = setTimeout(function() { el.textContent = prev; el.style.color = ''; }, 3000);
 }
 
 
@@ -69,7 +69,6 @@ function connect() {
 
   ws.onopen = () => {
     updateStatus('connected', '已连接');
-    document.getElementById('conn-dot').style.background = 'var(--online)';
     // 通过 REST API 拉取设备列表作为兜底
     fetch('/api/devices', {headers:{'Authorization':'Bearer '+localStorage.getItem('nftouch_token')}})
       .then(r=>r.json()).then(d=>{if(Array.isArray(d)){devices=d;if(typeof renderDeviceList==='function')renderDeviceList();}})
@@ -93,7 +92,7 @@ function connect() {
           pendingFrameHeader = msg;
           break;
         case 'task_status':
-          showTaskMsg(msg.text);
+          if (typeof handleTaskStatus === 'function') handleTaskStatus(msg);
           break;
         case 'error':
           toast('错误: ' + msg.reason, 'error');
@@ -151,7 +150,6 @@ function connect() {
 
   ws.onclose = () => {
     updateStatus('disconnected', '已断开，5s 后重连...');
-    document.getElementById('conn-dot').style.background = 'var(--offline)';
     setTimeout(connect, 5000);
   };
 

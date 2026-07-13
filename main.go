@@ -344,8 +344,21 @@ func handlePostTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := hub.sendToDevice(deviceID, WSMessage{
+	u := getUserFromRequest(r)
+	userID := ""
+	if u != nil {
+		userID = u.ID
+	}
+	taskID, err := insertTaskRecord(deviceID, userID, req.Prompt)
+	if err != nil {
+		log.Printf("[api] insertTaskRecord error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "failed to create task record"})
+		return
+	}
+
+	err = hub.sendToDevice(deviceID, WSMessage{
 		Type:   "cmd_task",
+		TaskID: taskID,
 		Prompt: req.Prompt,
 	})
 	if err != nil {
@@ -353,7 +366,34 @@ func handlePostTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, 200, map[string]string{"status": "sent"})
+	writeJSON(w, 200, map[string]interface{}{"status": "sent", "task_id": taskID})
+}
+
+func handleGetTasks(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.PathValue("id")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if limit <= 0 { limit = 20 }
+	tasks, err := getTaskHistory(deviceID, limit, offset)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "failed to get tasks"})
+		return
+	}
+	writeJSON(w, 200, tasks)
+}
+
+func handleDeleteTask(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.PathValue("id")
+	taskID, err := strconv.ParseInt(r.PathValue("tid"), 10, 64)
+	if err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid task id"})
+		return
+	}
+	if err := deleteTaskRecord(deviceID, taskID); err != nil {
+		writeJSON(w, 500, map[string]string{"error": "failed to delete task"})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
 
 func handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
@@ -622,8 +662,10 @@ func main() {
 	mux.HandleFunc("POST /api/bind", jwt(handleBind))
 	mux.HandleFunc("GET /api/devices", jwt(handleGetDevices))
 	mux.HandleFunc("GET /api/devices/{id}", jwt(handleGetDevice))
+	mux.HandleFunc("GET /api/devices/{id}/tasks", jwt(handleGetTasks))
 	mux.HandleFunc("DELETE /api/devices/{id}", jwt(handleDeleteDevice))
 	mux.HandleFunc("POST /api/devices/{id}/task", jwt(handlePostTask))
+	mux.HandleFunc("DELETE /api/devices/{id}/tasks/{tid}", jwt(handleDeleteTask))
 	mux.HandleFunc("POST /api/pairing-code", handlePairingCode)
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {

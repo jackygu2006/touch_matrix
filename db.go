@@ -53,6 +53,17 @@ type DeviceCode struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
+type TaskRecord struct {
+	ID        int64  `json:"id"`
+	DeviceID  string `json:"device_id"`
+	UserID    string `json:"user_id,omitempty"`
+	Prompt    string `json:"prompt"`
+	Status    string `json:"status"`
+	Result    string `json:"result,omitempty"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 func initDB(dbPath string) error {
 	var err error
 	db, err = sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL&_cache_size=-8000")
@@ -117,6 +128,20 @@ func initDB(dbPath string) error {
 			log.Printf("[db] ALTER TABLE device_codes ADD token_hash: %v", err)
 		}
 		db.Exec("INSERT INTO schema_version (version) VALUES (2)")
+	}
+	if currentVersion < 3 {
+		db.Exec(`CREATE TABLE IF NOT EXISTS task_history (
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			device_id  TEXT NOT NULL,
+			user_id    TEXT DEFAULT '',
+			prompt     TEXT NOT NULL,
+			status     TEXT DEFAULT 'running',
+			result     TEXT DEFAULT '',
+			created_at TEXT DEFAULT (datetime('now')),
+			updated_at TEXT DEFAULT (datetime('now'))
+		)`)
+		db.Exec("CREATE INDEX IF NOT EXISTS idx_task_device ON task_history(device_id, created_at DESC)")
+		db.Exec("INSERT INTO schema_version (version) VALUES (3)")
 	}
 return nil
 }
@@ -389,6 +414,56 @@ func hashToken(token string) string {
 		return ""
 	}
 	return string(hash)
+}
+
+// ============================================================
+// Task History
+// ============================================================
+
+func insertTaskRecord(deviceID, userID, prompt string) (int64, error) {
+	now := time.Now().Format("2006-01-02T15:04:05")
+	res, err := db.Exec(`INSERT INTO task_history (device_id, user_id, prompt, status, created_at, updated_at) VALUES (?, ?, ?, 'running', ?, ?)`,
+		deviceID, userID, prompt, now, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func updateTaskRecord(id int64, status, result string) {
+	now := time.Now().Format("2006-01-02T15:04:05")
+	timePrefix := "[" + time.Now().Format("15:04:05") + "] "
+	var existing string
+	db.QueryRow("SELECT COALESCE(result,'') FROM task_history WHERE id=?", id).Scan(&existing)
+	newResult := timePrefix + result
+	if existing != "" {
+		newResult = existing + "\n---\n" + timePrefix + result
+	}
+	db.Exec(`UPDATE task_history SET status=?, result=?, updated_at=? WHERE id=?`, status, newResult, now, id)
+}
+
+func getTaskHistory(deviceID string, limit, offset int) ([]TaskRecord, error) {
+	if limit <= 0 { limit = 20 }
+	rows, err := db.Query(`SELECT id, device_id, COALESCE(user_id,''), prompt, status, COALESCE(result,''), created_at, updated_at FROM task_history WHERE device_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`, deviceID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []TaskRecord
+	for rows.Next() {
+		var t TaskRecord
+		rows.Scan(&t.ID, &t.DeviceID, &t.UserID, &t.Prompt, &t.Status, &t.Result, &t.CreatedAt, &t.UpdatedAt)
+		tasks = append(tasks, t)
+	}
+	if tasks == nil {
+		tasks = []TaskRecord{}
+	}
+	return tasks, nil
+}
+
+func deleteTaskRecord(deviceID string, taskID int64) error {
+	_, err := db.Exec(`DELETE FROM task_history WHERE id=? AND device_id=?`, taskID, deviceID)
+	return err
 }
 
 // ============================================================

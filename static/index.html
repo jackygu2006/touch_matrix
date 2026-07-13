@@ -42,11 +42,15 @@
       <div id="task-panel">
         <div id="task-panel-header">
           <span>AI 任务</span>
+          <button id="history-btn" onclick="toggleTaskHistory()" title="历史记录" style="margin-left:auto;background:none;border:none;color:var(--text2);cursor:pointer;font-size:15px;padding:0 4px;line-height:1;">⏱</button>
         </div>
-        <div id="task-msg" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text2);min-height:60px;overflow-y:auto;max-height:200px;"></div>
+        <div id="task-chat"></div>
+        <div id="task-history-list" style="display:none;"></div>
         <div id="task-panel-inputs">
-          <input id="task-input" placeholder="输入任务，如：打开微信发消息给张三..." onkeydown="if(event.key==='Enter')sendTask()">
-          <button id="execute-btn" onclick="sendTask()">▶ 执行</button>
+          <div style="position:relative;">
+            <textarea id="task-input" placeholder="输入任务，如：打开小红书发一篇笔记..." rows="3" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendTask();}"></textarea>
+            <button id="execute-btn" onclick="sendTask()" title="发送 (Enter)">➤</button>
+          </div>
         </div>
       </div>
     </div>
@@ -61,15 +65,15 @@
       <div id="grid-container" style="display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;width:100%;"></div>
     </div>
     <div id="control-bar">
-      <button class="quick-btn" onclick="sendKey('home')" title="主页">主页</button>
-      <button class="quick-btn" onclick="sendKey('back')" title="返回">返回</button>
+      <button class="quick-btn" onclick="sendKey('home')" title="主页">⌂ 主页</button>
+      <button class="quick-btn" onclick="sendKey('back')" title="返回">↩ 返回</button>
       <!-- <span style="color:var(--border);margin:0 2px;user-select:none;">│</span> -->
       <button class="quick-btn" onclick="sendGesture('up')" title="上滑">↑ 上滑</button>
       <button class="quick-btn" onclick="sendGesture('down')" title="下滑">↓ 下滑</button>
       <button class="quick-btn" onclick="sendGesture('left')" title="左滑">← 左滑</button>
       <button class="quick-btn" onclick="sendGesture('right')" title="右滑">→ 右滑</button>
-      <button class="quick-btn" onclick="sendGesture('notify')" title="拉下通知栏">通知栏</button>
-      <button class="quick-btn warn" onclick="sendKey('lock')" title="锁屏">锁屏</button>
+      <button class="quick-btn" onclick="sendGesture('notify')" title="拉下通知栏">✉ 通知栏</button>
+      <button class="quick-btn warn" onclick="sendKey('lock')" title="锁屏">⏻ 锁屏</button>
       <input id="text-input" placeholder="发送文字到手机..." onkeydown="if(event.key==='Enter'){sendText();event.preventDefault();}">
       <button class="quick-btn" onclick="sendText()" title="将文字粘贴到手机当前输入框">发送</button>
     </div>
