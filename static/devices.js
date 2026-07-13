@@ -37,11 +37,12 @@ function renderDeviceList() {
     var dotClass = d.status === 'online' ? (hasAllPerms(d) ? 'online' : 'warn') : 'offline';
     var missing = getMissingPerms(d);
     var warnHtml = missing.length > 0 ? ' <span style="color:var(--warn);font-size:10px;" title="缺少权限: ' + missing.join(', ') + '">⚠ ' + missing.slice(0,2).join('/') + (missing.length > 2 ? '...' : '') + '</span>' : '';
+    var screenOffHtml = d.screen_on === false ? ' <span style="color:var(--info);font-size:10px;" title="屏幕已关闭">◉ 息屏</span>' : '';
     return `
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
       <div class="dot ${dotClass}"></div>
       <div class="info">
-        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : warnHtml}</div>
+        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : warnHtml + screenOffHtml}</div>
         <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · 电量 ${d.battery}%</div>
       </div>
       <span onclick="event.stopPropagation();showDeviceSettings('${d.id}')" style="cursor:pointer;opacity:.5;font-size:14px;padding:4px;" title="设备设置">⚙</span>
@@ -54,6 +55,7 @@ function renderDeviceList() {
     const dev = devices.find(d => d.id === activeDeviceId);
     if (!dev || dev.status === 'offline' || dev.status === 'unbound') {
       document.getElementById('perm-warning').style.display = 'none';
+      document.getElementById('screen-warning').style.display = 'none';
       var msg = '';
       if (dev && dev.status === 'unbound') msg = '⚠ 设备已解绑<br>请重新配对';
       else if (dev && dev.status === 'offline') msg = '⚠ 设备已离线<br>请在设备上打开 NF Touch App';
@@ -70,6 +72,14 @@ function renderDeviceList() {
         permWarnEl.style.display = 'block';
       } else {
         permWarnEl.style.display = 'none';
+      }
+
+      // 屏幕状态检测：屏幕关闭时显示蓝色提示
+      var screenWarnEl = document.getElementById('screen-warning');
+      if (dev.screen_on === false) {
+        screenWarnEl.style.display = 'block';
+      } else {
+        screenWarnEl.style.display = 'none';
       }
 
       // 检测设备是否无数据（5秒无帧=可能卡死，8秒无消息=可能离线）

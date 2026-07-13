@@ -57,6 +57,7 @@ type deviceConn struct {
 	deviceID    string
 	lastFrame   time.Time
 	permissions map[string]bool
+	screenOn    bool
 	mu          sync.Mutex
 }
 
@@ -231,6 +232,7 @@ func (h *Hub) broadcastDeviceList() {
 		if dc, ok := h.devices[devices[i].ID]; ok {
 			devices[i].LastFrame = dc.lastFrame
 			devices[i].Permissions = dc.permissions
+			devices[i].ScreenOn = dc.screenOn
 		}
 	}
 	h.mu.RUnlock()
@@ -401,6 +403,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 					if msg.Info != nil {
 						var info struct {
 							Battery     int              `json:"battery"`
+							ScreenOn    bool             `json:"screen_on"`
 							Permissions map[string]bool `json:"permissions"`
 						}
 						json.Unmarshal(msg.Info, &info)
@@ -408,6 +411,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 							info.Battery, time.Now().UTC().Format(time.RFC3339), deviceID)
 						dc.mu.Lock()
 						dc.permissions = info.Permissions
+						dc.screenOn = info.ScreenOn
 						dc.mu.Unlock()
 					}
 				default:

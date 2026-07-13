@@ -30,6 +30,7 @@ type Device struct {
 	Model       string           `json:"model"`
 	Resolution  string           `json:"resolution"`
 	Battery     int              `json:"battery"`
+	ScreenOn    bool             `json:"screen_on"`
 	Permissions map[string]bool  `json:"permissions,omitempty"`
 	LastSeen    *string          `json:"last_seen"`
 	CreatedAt   string           `json:"created_at"`

@@ -20,20 +20,34 @@
 ## 1. 编译
 
 ```bash
-go build -o nftouch-server .
+# macOS 本地（arm64）
+go build -o nftouch-server-macos .
+
+# Linux 部署（x86-64）
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o nftouch-server .
 ```
+
+> `nftouch-server-macos` 和 `nftouch-server` 均已加入 `.gitignore`，不会入库。
 
 ---
 
 ## 2. 启动 / 停止
 
 ```bash
-# 启动
-source .env && LISTEN_ADDR=":8443" DB_PATH="./nftouch.db" \
+# === 本地开发（推荐）===
+# 每次启动自动递增版本号（格式 2026.7.13.1），版本通过 GET /api/version 暴露
+export $(grep -v '^#' .env | xargs) && go run .
+
+# === 服务器部署 ===
+# 1) 上传二进制和静态文件
+# 2) 启动（服务器上的 .env 已配置好各项密钥）
+set -a && source .env && set +a
+LISTEN_ADDR=":8443" DB_PATH="./nftouch.db" \
   nohup ./nftouch-server > nftouch.log 2>&1 &
 
 # 指定 TLS 证书（可选）
-source .env && TLS_CERT="/path/to/cert.pem" TLS_KEY="/path/to/key.pem" \
+set -a && source .env && set +a
+TLS_CERT="/path/to/cert.pem" TLS_KEY="/path/to/key.pem" \
   LISTEN_ADDR=":8443" DB_PATH="./nftouch.db" \
   nohup ./nftouch-server > nftouch.log 2>&1 &
 
@@ -41,10 +55,15 @@ source .env && TLS_CERT="/path/to/cert.pem" TLS_KEY="/path/to/key.pem" \
 curl -s http://localhost:8443/health
 # → {"status":"ok"}
 
+curl -s http://localhost:8443/api/version
+# → {"version":"2026.7.13.3"}
+
 # 停止
 pkill -f nftouch-server
 lsof -i :8443 2>/dev/null || echo "端口已释放"
 ```
+
+> **注意**：`source .env` 在 zsh 中不会自动 export 变量给子进程。请使用 `set -a; source .env; set +a` 或 `export $(grep -v '^#' .env | xargs)`。
 
 ---
 
@@ -83,6 +102,7 @@ go test -v ./...
 | `GET` | `/api/auth/check` | 检查登录状态 | JWT |
 | `POST` | `/api/pairing-code` | 生成配对码 | 无 |
 | `GET` | `/health` | 健康检查 | 无 |
+| `GET` | `/api/version` | 服务端版本号 | 无 |
 
 ### 认证接口（需 JWT）
 
@@ -173,24 +193,7 @@ curl -X POST http://localhost:8443/api/admin/users \
 
 `.env` 文件：
 
-```
-ADMIN_EMAIL=admin@nftouch.local
-ADMIN_PASSWORD=nf123456
-JWT_SECRET=nftouch-jwt-secret-change-me
-```
+> - `JWT_SECRET` **必须配置**，不能使用默认值，否则启动会 fatalf。
+> - `.env` 文件**不要提交**到 Git，生产环境务必更换密钥。
+> - 启动时 `export $(grep -v '^#' .env | xargs)` 可确保变量被正确 export。
 
-> `.env` 文件**不要提交**到 Git，生产环境务必更换密钥。
-
----
-
-## 8. 安卓客户端（ApkClaw）
-
-```bash
-# 编译
-cd ../nf-touch
-export GRADLE_USER_HOME="$PWD/.gradle"
-./gradlew assembleDebug
-
-# 安装
-adb install -r app/build/outputs/apk/debug/ApkClaw_*.apk
-```

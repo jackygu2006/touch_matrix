@@ -170,3 +170,58 @@ function updateStatus(status, text) {
     document.getElementById('status-left').textContent = text;
   }
 }
+
+// ============================================================
+// 可拖拽分隔条
+// ============================================================
+(function() {
+  var dragging = null;
+  var startX = 0;
+  var startW = 0;
+
+  function initHandle(id, targetId, rightSide, minW, maxW, storageKey) {
+    var handle = document.getElementById(id);
+    var target = document.getElementById(targetId);
+    if (!handle || !target) return;
+
+    // 恢复上次保存的大小
+    var saved = localStorage.getItem(storageKey);
+    if (saved) {
+      var w = parseInt(saved);
+      if (w >= minW && w <= maxW) target.style.width = w + 'px';
+    }
+
+    handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      dragging = { handle: handle, target: target, rightSide: rightSide, minW: minW, maxW: maxW, key: storageKey };
+      startX = e.clientX;
+      startW = target.offsetWidth;
+      handle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    });
+  }
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var dx = e.clientX - startX;
+    var newW = dragging.rightSide ? startW - dx : startW + dx;
+    newW = Math.max(dragging.minW, Math.min(dragging.maxW, newW));
+    dragging.target.style.width = newW + 'px';
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging.handle.classList.remove('active');
+    localStorage.setItem(dragging.key, dragging.target.offsetWidth);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    dragging = null;
+  });
+
+  // 分隔条 1: sidebar(左) 与 main(右)，拖拽改变 sidebar 宽度
+  initHandle('resize-sidebar', 'sidebar', false, 180, 500, 'nftouch_sidebar_w');
+
+  // 分隔条 2: screen-canvas-area(左) 与 task-panel(右)，拖拽改变 task-panel 宽度
+  initHandle('resize-task', 'task-panel', true, 200, 600, 'nftouch_task_w');
+})();
