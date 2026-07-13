@@ -245,6 +245,24 @@ function sendKey(key) {
   send({type: 'cmd_key', device_id: activeDeviceId, key: key});
 }
 
+// 千分比坐标 (0-1000)，根据设备 JPEG 分辨率自动换算
+function sendGesture(dir) {
+  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
+  var w = devW || 720;
+  var h = devH || 1600;
+  var s = {
+    up:           [w*0.5, h*0.7,  w*0.5, h*0.3,  300],
+    down:         [w*0.5, h*0.3,  w*0.5, h*0.7,  300],
+    left:         [w*0.8, h*0.5,  w*0.2, h*0.5,  300],
+    right:        [w*0.2, h*0.5,  w*0.8, h*0.5,  300],
+    notify:       [w*0.5, h*0.05, w*0.5, h*0.4,  300],
+    home_gesture: [w*0.5, h*0.95, w*0.5, h*0.3,  500]
+  };
+  var g = s[dir];
+  if (!g) return;
+  send({type: 'cmd_swipe', device_id: activeDeviceId, x1: Math.round(g[0]), y1: Math.round(g[1]), x2: Math.round(g[2]), y2: Math.round(g[3]), duration: g[4]});
+}
+
 function toggleGrid() {
   gridMode = !gridMode;
   var btn = document.getElementById('grid-toggle');

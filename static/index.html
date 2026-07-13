@@ -70,6 +70,13 @@
       <button class="quick-btn warn" onclick="sendKey('lock')" title="锁屏">锁屏</button>
       <button class="quick-btn" onclick="sendKey('home')" title="主页">主页</button>
       <button class="quick-btn" onclick="sendKey('back')" title="返回">返回</button>
+      <span style="color:var(--border);margin:0 2px;user-select:none;">│</span>
+      <button class="quick-btn gesture" onclick="sendGesture('up')" title="上滑">↑ 上滑</button>
+      <button class="quick-btn gesture" onclick="sendGesture('down')" title="下滑">↓ 下滑</button>
+      <button class="quick-btn gesture" onclick="sendGesture('left')" title="左滑">← 左滑</button>
+      <button class="quick-btn gesture" onclick="sendGesture('right')" title="右滑">→ 右滑</button>
+      <button class="quick-btn gesture" onclick="sendGesture('notify')" title="拉下通知栏">🔔 通知</button>
+      <button class="quick-btn gesture" onclick="sendGesture('home_gesture')" title="应用">🏠 应用</button>
       <input id="text-input" placeholder="发送文字到手机..." onkeydown="if(event.key==='Enter'){sendText();event.preventDefault();}">
       <button class="quick-btn" onclick="sendText()" title="将文字粘贴到手机当前输入框">发送</button>
     </div>

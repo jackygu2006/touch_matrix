@@ -63,6 +63,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 .quick-btn:hover { border-color:var(--accent); color:var(--accent); }
 .quick-btn.warn { color:#f87171; }
 .quick-btn.warn:hover { border-color:#f87171; }
+.quick-btn.gesture { border-color:var(--border); color:var(--text2); }
 #status-bar { padding:6px 20px; background:var(--surface2); border-top:1px solid var(--border); font-size:11px; color:var(--text2); display:flex; justify-content:space-between; }
 .modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:100; }
 .modal { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:28px; width:360px; }
