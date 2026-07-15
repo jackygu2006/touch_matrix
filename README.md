@@ -1,9 +1,9 @@
-# NFTouch Cloud Control Platform / 云控平台
+# NFTouch Cloud Control Platform
 
-## Directory Structure / 目录结构
+## Directory Structure
 
 ```
-├── server/                  # Go server (current directory / 当前目录)
+├── server/                  # Go server (current directory)
 │   ├── main.go              # HTTP routes + middleware
 │   ├── db.go                # Database operations
 │   ├── hub.go               # WebSocket message hub
@@ -17,7 +17,7 @@
 
 ---
 
-## 1. Build / 编译
+## 1. Build
 
 ```bash
 # macOS local (arm64)
@@ -31,14 +31,14 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o nftouch-server .
 
 ---
 
-## 2. Start / Stop / 启动与停止
+## 2. Start / Stop
 
 ```bash
-# === Local Development / 本地开发 ===
+# === Local Development ===
 # Version auto-increments on each start (format 2026.7.13.1), exposed via GET /api/version
 export $(grep -v '^#' .env | xargs) && go run .
 
-# === Server Deployment / 服务器部署 ===
+# === Server Deployment ===
 # 1) Upload binary and static files
 # 2) Start (server-side .env is pre-configured)
 set -a && source .env && set +a
@@ -60,14 +60,14 @@ curl -s http://localhost:8443/api/version
 
 # Stop
 pkill -f nftouch-server
-lsof -i :8443 2>/dev/null || echo "Port released / 端口已释放"
+lsof -i :8443 2>/dev/null || echo "Port released"
 ```
 
 > **Note**: `source .env` in zsh does not auto-export variables to child processes. Use `set -a; source .env; set +a` or `export $(grep -v '^#' .env | xargs)`.
 
 ---
 
-## 3. Test / 测试
+## 3. Test
 
 ```bash
 # One-click: unit tests + static analysis + build verification
@@ -79,7 +79,7 @@ go test -v ./...
 
 > **Rule**: When adding new APIs, you **must** add corresponding test cases in `*_test.go`. Always run `./test.sh` before committing.
 
-### Coverage / 覆盖率
+### Coverage
 
 | File | Count | APIs Covered |
 |-----|-------|-------------|
@@ -92,9 +92,9 @@ go test -v ./...
 
 ---
 
-## 4. REST API Reference / REST API 参考
+## 4. REST API Reference
 
-### Public Endpoints / 公开接口
+### Public Endpoints
 
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
@@ -104,7 +104,7 @@ go test -v ./...
 | `GET` | `/health` | Health check | None |
 | `GET` | `/api/version` | Server version | None |
 
-### Authenticated Endpoints / 认证接口 (JWT required)
+### Authenticated Endpoints (JWT required)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -115,7 +115,7 @@ go test -v ./...
 | `DELETE` | `/api/devices/{id}` | Delete device |
 | `POST` | `/api/devices/{id}/task` | Dispatch AI task |
 
-### Admin Endpoints / 管理员接口 (JWT + admin role)
+### Admin Endpoints (JWT + admin role)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -125,52 +125,52 @@ go test -v ./...
 | `DELETE` | `/api/admin/users/{id}` | Delete user |
 | `PUT` | `/api/admin/users/{id}/toggle` | Enable/disable user |
 
-### Request Examples / 请求示例
+### Request Examples
 
 ```bash
-# Login / 登录
+# Login
 curl -X POST http://localhost:8443/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@nftouch.local","password":"[redacted]"}'
 
-# Get device list / 获取设备列表
+# Get device list
 curl http://localhost:8443/api/devices \
   -H "Authorization: Bearer [redacted]"
 
-# Get pairing code / 获取配对码
+# Get pairing code
 curl -X POST http://localhost:8443/api/pairing-code \
   -H "Content-Type: application/json" \
   -d '{"device_id":"my-phone-001"}'
 
-# Bind device / 绑定设备
+# Bind device
 curl -X POST http://localhost:8443/api/bind \
   -H "Authorization: Bearer [redacted]" \
   -H "Content-Type: application/json" \
   -d '{"code":"123456"}'
 
-# Dispatch task / 下发任务
+# Dispatch task
 curl -X POST http://localhost:8443/api/devices/my-phone-001/task \
   -H "Authorization: Bearer [redacted]" \
   -H "Content-Type: application/json" \
-  -d '{"prompt":"打开微信"}'
+  -d '{"prompt":"Open WeChat"}'
 
-# Admin: create user / 管理员创建用户
+# Admin: create user
 curl -X POST http://localhost:8443/api/admin/users \
   -H "Authorization: Bearer [redacted]" \
   -H "Content-Type: application/json" \
   -d '{"email":"user@test.com","password":"[redacted]","nickname":"Test","max_devices":5}'
 ```
 
-### WebSocket Endpoints / WebSocket 端点
+### WebSocket Endpoints
 
 | Path | Purpose | Auth |
 |------|---------|------|
 | `GET /ws/device` | Device connection | token |
-| `GET /ws/dash` | Dashboard panel | JWT (query `?token=[redacted]` |
+| `GET /ws/dash` | Dashboard panel | JWT (query `?token=<token>`) |
 
 ---
 
-## 5. Default Accounts / 默认账户
+## 5. Default Accounts
 
 | Role | Email | Password | Quota |
 |------|-------|----------|-------|
@@ -179,7 +179,7 @@ curl -X POST http://localhost:8443/api/admin/users \
 
 ---
 
-## 6. Device Binding Flow / 设备绑定流程
+## 6. Device Binding Flow
 
 1. **Phone**: Install NF Touch app, grant accessibility service permission
 2. **Phone**: Settings → Configure AI model (DeepSeek API recommended)
@@ -189,7 +189,7 @@ curl -X POST http://localhost:8443/api/admin/users \
 
 ---
 
-## 7. Environment Variables / 环境变量
+## 7. Environment Variables
 
 `.env` file:
 
