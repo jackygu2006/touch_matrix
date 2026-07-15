@@ -30,13 +30,13 @@
    <div id="main">
     <div id="screen-area">
       <div id="screen-canvas-area">
-        <div class="placeholder" id="screen-placeholder">
+        <div class="placeholder" id="screen-placeholder" data-i18n="devices.select_hint">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
           选择一个设备查看实时屏幕
         </div>
         <canvas id="screen-canvas" class="hidden"></canvas>
         <div id="perm-warning" style="display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.15);border:1px solid var(--warn);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--warn);text-align:center;z-index:10;white-space:nowrap;"></div>
-        <div id="screen-warning" style="display:none;position:absolute;top:38px;left:50%;transform:translateX(-50%);background:rgba(96,165,250,.12);border:1px solid var(--info);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--info);text-align:center;z-index:10;white-space:nowrap;">data-i18n="screen_warning.off">📱 设备屏幕已关闭</div>
+        <div id="screen-warning" style="display:none;position:absolute;top:38px;left:50%;transform:translateX(-50%);background:rgba(96,165,250,.12);border:1px solid var(--info);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--info);text-align:center;z-index:10;white-space:nowrap;" data-i18n="screen_warning.off">📱 设备屏幕已关闭</div>
       </div>
       <div class="resize-handle resize-handle-v" id="resize-task"></div>
       <div id="task-panel">
