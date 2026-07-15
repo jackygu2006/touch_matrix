@@ -25,7 +25,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 <body>
 <div class="login-box">
   <h1 data-i18n="login.heading">小奈Matrix</h1>
-  <div class="ver">v0.2.0</div>
+  <div class="ver" id="login-version">v0.2.0</div>
   <form onsubmit="doLogin(event)">
     <label data-i18n="login.email_label">邮箱</label>
     <input id="email" type="email" value="admin@nftouch.local" autofocus>
@@ -37,6 +37,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 </div>
 <script src="i18n.js"></script>
 <script>
+// Fetch server version
+fetch('/api/version').then(function(r){ return r.json(); }).then(function(d){
+  var el = document.getElementById('login-version');
+  if (el && d.version) el.textContent = 'v' + d.version;
+}).catch(function(){});
+
 async function doLogin(e) {
   e.preventDefault();
   var email = document.getElementById('email').value.trim();
