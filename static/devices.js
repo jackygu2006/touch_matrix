@@ -46,7 +46,7 @@ function renderDeviceList() {
         <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">' + __('devices.unbound_tag') + '</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">' + __('devices.offline_tag') + '</span>' : warnHtml + screenOffHtml}</div>
         <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · ${__('device.battery')} ${d.battery}%</div>
       </div>
-      <span onclick="event.stopPropagation();deleteDevice('${d.id}')" style="cursor:pointer;opacity:.3;font-size:16px;padding:4px;font-weight:bold;" title="' + __('devices.delete') + '">×</span>
+      <span onclick="event.stopPropagation();deleteDevice('${d.id}')" style="cursor:pointer;opacity:.3;font-size:16px;padding:4px;font-weight:bold;" title="${__('devices.delete')}">×</span>
     </div>
   `}).join('');
 
