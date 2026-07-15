@@ -1,18 +1,18 @@
 // Control Bar, Bind Modal, Device Settings, Calibration
 function sendText() {
-  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
+  if (!activeDeviceId) return toast(__('common.select_device_first'), 'error');
   const input = document.getElementById('text-input');
   const text = input.value;
   if (!text) return;
   send({type: 'cmd_input', device_id: activeDeviceId, text: text});
-  showTaskMsg('已发送: ' + text.substring(0, 30));
+  showTaskMsg(__('task.sent') + ': ' + text.substring(0, 30));
   input.value = '';
 }
 
 var taskRunning = false;
 
 function sendTask() {
-  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
+  if (!activeDeviceId) return toast(__('common.select_device_first'), 'error');
   var input = document.getElementById('task-input');
   var prompt = input.value.trim();
   if (!prompt) return;
@@ -20,7 +20,7 @@ function sendTask() {
   if (taskRunning) {
     send({type: 'cmd_cancel_task', device_id: activeDeviceId});
     setTaskButton(false);
-    appendChatMessage('bot', '⏹ 已发送停止指令');
+    appendChatMessage('bot', __('task.stop_sent'));
     return;
   }
 
@@ -36,10 +36,10 @@ function sendTask() {
       setTaskButton(true);
       input.value = '';
     } else {
-      toast('发送失败: ' + (d.error || '未知错误'), 'error');
+      toast(__('task.send_failed') + ': ' + (d.error || __('task.unknown_error')), 'error');
     }
   }).catch(function(e) {
-    toast('发送失败: ' + e.message, 'error');
+    toast(__('task.send_failed') + ': ' + e.message, 'error');
   });
 }
 
@@ -49,11 +49,11 @@ function setTaskButton(running) {
   if (running) {
     btn.innerHTML = '■';
     btn.style.background = '#ef4444';
-    btn.title = '停止 (点击取消)';
+    btn.title = __('task.stop_title');
   } else {
     btn.innerHTML = '➤';
     btn.style.background = '';
-    btn.title = '发送 (Enter)';
+    btn.title = __('task.send_title');
   }
 }
 
@@ -71,14 +71,14 @@ function appendChatMessage(type, text, time) {
   div.innerHTML = '<div class="chat-bubble">' + escHtml(text).replace(/\n/g, '<br>') + '</div><div class="chat-time">' + time + '</div>';
   el.appendChild(div);
   el.scrollTop = el.scrollHeight;
-  // 保留最近 100 条消息
+  // Keep the last 100 messages
   while (el.children.length > 100) el.removeChild(el.firstChild);
 }
 
 function refreshTaskHistory() {
   if (!activeDeviceId) return;
   var el = document.getElementById('task-chat');
-  if (el) el.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">加载中...</div>';
+  if (el) el.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">' + __('task.loading') + '</div>';
   var apiBase = location.protocol + '//' + location.host;
   var token = localStorage.getItem('nftouch_token');
   fetch(apiBase + '/api/devices/' + encodeURIComponent(activeDeviceId) + '/tasks', {
@@ -90,7 +90,7 @@ function refreshTaskHistory() {
     renderTaskHistory(tasks);
   }).catch(function(e) {
     console.error('Failed to load task history:', e);
-    if (el) el.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">加载失败，请重试</div>';
+    if (el) el.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">' + __('task.load_failed') + '</div>';
   });
 }
 
@@ -99,10 +99,10 @@ function renderTaskHistory(tasks) {
   if (!el) return;
   el.innerHTML = '';
   if (!tasks || tasks.length === 0) {
-    el.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">暂无任务记录</div>';
+    el.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">' + __('task.no_records') + '</div>';
     return;
   }
-  // 倒序显示（最新的在底部）
+  // Display in reverse chronological order (newest at bottom)
   tasks.reverse().forEach(function(t) {
     var time = t.created_at ? t.created_at.substring(11, 16) : '';
     appendChatMessage('user', t.prompt, time);
@@ -115,7 +115,7 @@ function renderTaskHistory(tasks) {
       });
     }
     if (t.status === 'running') {
-      appendChatMessage('bot', '⏳ 执行中...', '');
+      appendChatMessage('bot', __('task.running'), '');
     }
   });
 }
@@ -123,17 +123,17 @@ function renderTaskHistory(tasks) {
 function handleTaskStatus(msg) {
   var text = msg.text || '';
   var time = msg.time || chatTime();
-  // 除掉可能已有的 [HH:MM:SS] 前缀（服务端已追加时间戳）
+  // Remove any existing [HH:MM:SS] prefix (server already appends timestamp)
   var displayText = text.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '');
   if (displayText) appendChatMessage('bot', displayText, time);
-  // 任务完成时重置按钮状态
+  // Reset button state when task completes
   if (text.indexOf('✅') >= 0 || text.indexOf('完成') >= 0 || text.indexOf('失败') >= 0 || text.indexOf('取消') >= 0 || text.indexOf('错误') >= 0) {
     setTaskButton(false);
   }
 }
 
 // ============================================================
-// 任务历史列表
+// Task history list
 // ============================================================
 var historyOffset = 0, historyLimit = 20, historyHasMore = true, showingHistory = false;
 
@@ -147,7 +147,7 @@ function toggleTaskHistory() {
     chatEl.style.display = 'none';
     listEl.style.display = 'block';
     btn.textContent = '✕';
-    btn.title = '关闭历史';
+    btn.title = __('task.close_history');
     historyOffset = 0;
     historyHasMore = true;
     loadHistoryList();
@@ -155,14 +155,14 @@ function toggleTaskHistory() {
     chatEl.style.display = 'block';
     listEl.style.display = 'none';
     btn.textContent = '⏱';
-    btn.title = '历史记录';
+    btn.title = __('task.history');
   }
 }
 
 function loadHistoryList(append) {
   if (!activeDeviceId) return;
   var listEl = document.getElementById('task-history-list');
-  if (!append) listEl.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">加载中...</div>';
+  if (!append) listEl.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">' + __('task.loading') + '</div>';
 
   var apiBase = location.protocol + '//' + location.host;
   fetch(apiBase + '/api/devices/' + encodeURIComponent(activeDeviceId) + '/tasks?limit=' + historyLimit + '&offset=' + historyOffset, {
@@ -170,7 +170,7 @@ function loadHistoryList(append) {
   }).then(function(r) { return r.json(); }).then(function(tasks) {
     if (!append) listEl.innerHTML = '';
     if (tasks.length === 0 && !append) {
-      listEl.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">暂无任务记录</div>';
+      listEl.innerHTML = '<div style="text-align:center;padding:24px;opacity:.3;">' + __('task.no_records') + '</div>';
       return;
     }
     if (Array.isArray(tasks)) tasks.forEach(function(t) {
@@ -182,8 +182,8 @@ function loadHistoryList(append) {
           '<div class="prompt">' + escHtml(t.prompt) + '</div>' +
           '<div class="meta">' + time + '</div>' +
         '</div>' +
-        '<span class="copy-icon" title="复制"></span>' +
-        '<span class="trash-icon" title="删除"></span>' +
+        '<span class="copy-icon" title="' + __('common.copy') + '"></span>' +
+        '<span class="trash-icon" title="' + __('common.delete') + '"></span>' +
       '</div>';
       div.querySelector('.history-item-content').onclick = function() { showTaskDetail(t); };
       div.querySelector('.copy-icon').onclick = function(e) { e.stopPropagation(); copyTask(t); };
@@ -198,7 +198,7 @@ function loadHistoryList(append) {
     if (historyHasMore) {
       var btn = document.createElement('div');
       btn.className = 'load-more';
-      btn.textContent = '↓ 加载更多';
+      btn.textContent = __('task.load_more');
       btn.onclick = function() { loadHistoryList(true); };
       listEl.appendChild(btn);
     }
@@ -206,7 +206,7 @@ function loadHistoryList(append) {
 }
 
 function copyTask(t) {
-  var text = '任务: ' + t.prompt + '\n时间: ' + (t.created_at || '') + '\n';
+  var text = __('task.copy_prompt', t.prompt, t.created_at || '');
   if (t.result) {
     text += '----------------------------\n';
     t.result.split('\n---\n').forEach(function(line) {
@@ -214,7 +214,7 @@ function copyTask(t) {
     });
   }
   navigator.clipboard.writeText(text).then(function() {
-    toast('已复制', 'success');
+    toast(__('common.copied'), 'success');
   }).catch(function() {
     // fallback for older browsers
     var ta = document.createElement('textarea');
@@ -223,12 +223,12 @@ function copyTask(t) {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
-    toast('已复制', 'success');
+    toast(__('common.copied'), 'success');
   });
 }
 
 function deleteTask(taskId) {
-  if (!confirm('确定要删除这条任务记录吗？')) return;
+  if (!confirm(__('common.delete_task_confirm'))) return;
   var apiBase = location.protocol + '//' + location.host;
   var token = localStorage.getItem('nftouch_token');
   fetch(apiBase + '/api/devices/' + encodeURIComponent(activeDeviceId) + '/tasks/' + taskId, {
@@ -284,7 +284,7 @@ let lastBindToken = '';
 async function doBind() {
   const code = document.getElementById('code-input').value.trim();
   if (code.length !== 6 || !/^\d{6}$/.test(code)) {
-    document.getElementById('bind-error').textContent = '请输入 6 位数字配对码';
+    document.getElementById('bind-error').textContent = __('bind.invalid_code');
     document.getElementById('bind-error').classList.remove('hidden');
     return;
   }
@@ -298,7 +298,7 @@ async function doBind() {
     });
     const data = await resp.json();
     if (!resp.ok) {
-      document.getElementById('bind-error').textContent = data.error || '绑定失败';
+      document.getElementById('bind-error').textContent = data.error || __('bind.failed');
       document.getElementById('bind-error').classList.remove('hidden');
       return;
     }
@@ -310,7 +310,7 @@ async function doBind() {
     lastBindToken = data.token;
     send({type: 'refresh'});
   } catch (e) {
-    document.getElementById('bind-error').textContent = '网络错误，请重试';
+    document.getElementById('bind-error').textContent = __('bind.network_error');
     document.getElementById('bind-error').classList.remove('hidden');
   }
 }
@@ -321,7 +321,7 @@ function copyToken() {
   // Try modern API first
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function() {
-      toast('Token 已复制！', 'success');
+      toast(__('common.token_copied'), 'success');
     }).catch(function() { fallbackCopy(text); });
   } else {
     fallbackCopy(text);
@@ -334,27 +334,27 @@ function fallbackCopy(text) {
   ta.style.position = 'fixed'; ta.style.left = '-999px';
   document.body.appendChild(ta);
   ta.select();
-  try { document.execCommand('copy'); toast('Token 已复制！', 'success'); }
-  catch(e) { toast('复制失败，请手动选择并复制', 'error'); }
+  try { document.execCommand('copy'); toast(__('common.token_copied'), 'success'); }
+  catch(e) { toast(__('common.copy_failed'), 'error'); }
   document.body.removeChild(ta);
 }
 
 function showDeviceSettings(id) {
   var dev = devices.find(d => d.id === id);
   if (!dev) return;
-  document.getElementById('dev-settings-title').textContent = '设备: ' + escHtml(dev.name || dev.id);
+  document.getElementById('dev-settings-title').textContent = __('device.settings_title', escHtml(dev.name || dev.id));
   document.getElementById('dev-settings-content').innerHTML = `
     <div style="font-size:12px;color:var(--text2);margin-bottom:8px;">
-      型号: ${escHtml(dev.model||'-')} · 分辨率: ${escHtml(dev.resolution||'-')} · 电量: ${dev.battery}%<br>
-      状态: ${dev.status==='online'?'🟢 在线':'🔴 离线'}
+      ${__('device.info', escHtml(dev.model||'-'), escHtml(dev.resolution||'-'), dev.battery)}<br>
+      ${__('device.status')}: ${dev.status==='online'?'🟢 ' + __('device.online'):'🔴 ' + __('device.offline')}
     </div>
-    ${dev.status==='offline' ? '<div style="font-size:11px;color:var(--offline);margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px;">⚠ 请在手机上打开 NFTouch 应用即可自动重连。<br>如果仍无法连接，点 × 删掉后重新配对。</div>' : ''}
+    ${dev.status==='offline' ? '<div style="font-size:11px;color:var(--offline);margin-bottom:8px;padding:8px;background:var(--bg);border-radius:6px;">' + __('device.offline_help') + '</div>' : ''}
   `;
   document.getElementById('dev-settings-modal').classList.remove('hidden');
 }
 
 async function deleteDevice(id) {
-  if (!confirm('确定要删除该设备吗？')) return;
+  if (!confirm(__('common.delete_confirm'))) return;
   const apiBase = `${location.protocol}//${location.host}`;
   try {
     const resp = await fetch(`${apiBase}/api/devices/${encodeURIComponent(id)}`, {
@@ -373,15 +373,15 @@ async function deleteDevice(id) {
 }
 
 
-// 鼠标悬停显示屏幕坐标
+// Show screen coordinates on mouse hover
 canvas.addEventListener('mousemove', function(e) {
   var rect = canvas.getBoundingClientRect();
   var sx = Math.round((e.clientX - rect.left) * (devW / rect.width));
   var sy = Math.round((e.clientY - rect.top) * (devH / rect.height));
-  document.getElementById('status-right').textContent = '坐标 ' + sx + ',' + sy;
+  document.getElementById('status-right').textContent = __('status.coords', sx, sy);
 });
 
-// 点击屏幕区域后，电脑键盘输入直接发送到手机
+// After clicking the screen area, keyboard input is sent directly to the phone
 let screenFocused = false;
 canvas.addEventListener('click', (e) => {
   screenFocused = true;
@@ -398,12 +398,12 @@ document.addEventListener('click', (e) => {
 canvas.tabIndex = 0;
 
 document.addEventListener('keydown', (e) => {
-  // 系统快捷键
+  // System keyboard shortcuts
   if (e.target.tagName === 'INPUT') return;
   if (!activeDeviceId) return;
   if (e.key === 'Escape') { sendKey('lock'); return; }
   
-  // 键盘输入模式：屏幕区域聚焦时发送按键
+  // Keyboard input mode: send keys when screen area is focused
   if (!screenFocused) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   var ch = e.key;

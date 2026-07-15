@@ -29,7 +29,7 @@ function renderDeviceList() {
   });
   const container = document.getElementById('device-list');
   if (devices.length === 0) {
-    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text2);font-size:13px;">暂无设备<br>点击下方按钮绑定</div>';
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text2);font-size:13px;">' + __('devices.empty') + '</div>';
     return;
   }
 
@@ -37,16 +37,16 @@ function renderDeviceList() {
     var hasData = d.permissions && Object.keys(d.permissions).length > 0;
     var dotClass = d.status === 'online' ? (hasData ? (hasAllPerms(d) ? 'online' : 'warn') : 'loading') : 'offline';
     var missing = hasData ? getMissingPerms(d) : [];
-    var warnHtml = missing.length > 0 ? ' <span style="color:var(--warn);font-size:10px;" title="缺少权限: ' + missing.join(', ') + '">⚠ ' + missing.slice(0,2).join('/') + (missing.length > 2 ? '...' : '') + '</span>' : '';
-    var screenOffHtml = (hasData && d.screen_on === false) ? ' <span style="color:var(--info);font-size:10px;" title="屏幕已关闭">◉ 息屏</span>' : '';
+    var warnHtml = missing.length > 0 ? ' <span style="color:var(--warn);font-size:10px;" title="' + __('devices.missing_perms') + missing.join(', ') + '">⚠ ' + missing.slice(0,2).join('/') + (missing.length > 2 ? '...' : '') + '</span>' : '';
+    var screenOffHtml = (hasData && d.screen_on === false) ? ' <span style="color:var(--info);font-size:10px;" title="' + __('devices.screen_off') + '">◉ ' + __('devices.screen_off') + '</span>' : '';
     return `
     <div class="device-item${d.id === activeDeviceId ? ' active' : ''}" onclick="selectDevice('${d.id}')">
       <div class="dot ${dotClass}"></div>
       <div class="info">
-        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">● 已解绑</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">● 离线</span>' : warnHtml + screenOffHtml}</div>
-        <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · 电量 ${d.battery}%</div>
+        <div class="name">${escHtml(d.name || d.id)}${d.status === 'unbound' ? ' <span style="color:var(--offline);font-size:11px;">' + __('devices.unbound_tag') + '</span>' : d.status !== 'online' ? ' <span style="color:var(--offline);font-size:11px;">' + __('devices.offline_tag') + '</span>' : warnHtml + screenOffHtml}</div>
+        <div class="meta">${escHtml(d.model || '')} · ${d.resolution || ''} · ' + __('device.battery') + ' ${d.battery}%</div>
       </div>
-      <span onclick="event.stopPropagation();deleteDevice('${d.id}')" style="cursor:pointer;opacity:.3;font-size:16px;padding:4px;font-weight:bold;" title="删除设备">×</span>
+      <span onclick="event.stopPropagation();deleteDevice('${d.id}')" style="cursor:pointer;opacity:.3;font-size:16px;padding:4px;font-weight:bold;" title="' + __('devices.delete') + '">×</span>
     </div>
   `}).join('');
 
@@ -57,26 +57,26 @@ function renderDeviceList() {
       document.getElementById('perm-warning').style.display = 'none';
       document.getElementById('screen-warning').style.display = 'none';
       var msg = '';
-      if (dev && dev.status === 'unbound') msg = '⚠ 设备已解绑<br>请重新配对';
-      else if (dev && dev.status === 'offline') msg = '⚠ 设备已离线<br>请在设备上打开 NF Touch App';
-      else msg = '选择一个设备查看实时屏幕';
+      if (dev && dev.status === 'unbound') msg = __('devices.unbound_hint');
+      else if (dev && dev.status === 'offline') msg = __('devices.offline_hint');
+      else msg = __('devices.select_hint');
       document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;line-height:1.8;">' + msg + '</div>';
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
       var hasData = dev.permissions && Object.keys(dev.permissions).length > 0;
 
-      // 权限检测：WebSocket 在线但权限不完整，显示黄色警告（数据未就绪时不显示）
+      // Permission check: WebSocket online but incomplete permissions, show yellow warning (skip when data not ready)
       var missingPerms = hasData ? getMissingPerms(dev) : [];
       var permWarnEl = document.getElementById('perm-warning');
       if (missingPerms.length > 0) {
-        permWarnEl.innerHTML = '⚠ 缺少权限：' + missingPerms.join('、') + ' — 请在手机上开启';
+        permWarnEl.innerHTML = __('devices.missing_perms') + missingPerms.join(__('devices.missing_perms_join')) + __('devices.missing_perms_hint');
         permWarnEl.style.display = 'block';
       } else {
         permWarnEl.style.display = 'none';
       }
 
-      // 屏幕状态检测：数据未就绪时不显示
+      // Screen status check: skip when data not ready
       var screenWarnEl = document.getElementById('screen-warning');
       if (hasData && dev.screen_on === false) {
         screenWarnEl.style.display = 'block';
@@ -84,17 +84,17 @@ function renderDeviceList() {
         screenWarnEl.style.display = 'none';
       }
 
-      // 检测设备是否无数据（5秒无帧=可能卡死，8秒无消息=可能离线）
+      // Check if device has no data (5s no frame = may be stuck, 8s no message = may be offline)
       if (dev.last_frame && new Date(dev.last_frame).getTime() > 0) {
         var age = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
         if (age > 8) {
-          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备可能已离线<br>超过 ' + Math.round(age) + ' 秒无数据，正在确认...</div>';
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">' + __('devices.offline_warning', Math.round(age)) + '</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
           canvas.classList.add('hidden');
           return;
         }
         if (age > 5) {
-          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备在线但无画面<br>请重启无障碍服务或NF Touch</div>';
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">' + __('devices.no_screen') + '</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
           canvas.classList.add('hidden');
           return;
@@ -110,7 +110,7 @@ function escHtml(s) { const d=document.createElement('div'); d.textContent=s; re
 
 function getMissingPerms(dev) {
   if (!dev.permissions) return [];
-  var names = {accessibility:'无障碍服务', notification:'常驻通知', overlay:'悬浮窗', battery_opt:'电池优化', storage:'存储权限'};
+  var names = {accessibility:__('perms.accessibility'), notification:__('perms.notification'), overlay:__('perms.overlay'), battery_opt:__('perms.battery_opt'), storage:__('perms.storage')};
   var missing = [];
   for (var k in dev.permissions) {
     if (!dev.permissions[k]) missing.push(names[k] || k);
@@ -128,7 +128,7 @@ function hasAllPerms(dev) {
 
 function selectDevice(id) {
   activeDeviceId = id;
-  // 如果在 Grid 模式，退出并切换到单设备模式
+  // If in Grid mode, exit and switch to single device mode
   if (gridMode) toggleGrid();
   send({type: 'watch_one', device_id: id});
   renderDeviceList();
@@ -140,18 +140,18 @@ function selectDevice(id) {
 function updateDeviceStatus() {
   const el = document.getElementById('status-left');
   if (!activeDeviceId) {
-    el.textContent = '未连接';
+    el.textContent = __('status.not_connected');
     return;
   }
   const dev = devices.find(d => d.id === activeDeviceId);
   if (!dev) {
-    el.textContent = '已连接';
+    el.textContent = __('status.connected');
     return;
   }
   if (dev.status === 'online') {
-    el.textContent = '已连接 · 设备在线 🟢';
+    el.textContent = __('status.online');
   } else {
-    var dv = devices.find(d => d.id === activeDeviceId); el.textContent = dv && dv.status === 'unbound' ? '已连接 · 已解绑' : '已连接 · 设备离线 🔴';
+    var dv = devices.find(d => d.id === activeDeviceId); el.textContent = dv && dv.status === 'unbound' ? __('status.unbound_connected') : __('status.offline_connected');
   }
 }
 
@@ -231,13 +231,13 @@ canvas.addEventListener('touchend', (e) => {
 // Control Bar
 // ============================================================
 function sendKey(key) {
-  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
+  if (!activeDeviceId) return toast(__('common.select_device_first'), 'error');
   send({type: 'cmd_key', device_id: activeDeviceId, key: key});
 }
 
-// 千分比坐标 (0-1000)，根据设备 JPEG 分辨率自动换算
+// Permille coordinates (0-1000), auto-converted based on device JPEG resolution
 function sendGesture(dir) {
-  if (!activeDeviceId) return toast('请先选择一个设备', 'error');
+  if (!activeDeviceId) return toast(__('common.select_device_first'), 'error');
   var w = devW || 720;
   var h = devH || 1600;
   var s = {
@@ -297,38 +297,38 @@ function buildGrid() {
     card.innerHTML = '<div style="padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:6px;">' +
       '<span style="width:6px;height:6px;border-radius:50%;background:' + (d.status==='online'?'var(--online)':'var(--offline)') + ';"></span>' +
       escHtml(d.name||d.id) + ' <span style="color:var(--text2);">' + escHtml(d.model||'') + '</span>' +
-      (d.status==='unbound' ? ' <span style="color:var(--offline);font-size:10px;">已解绑</span>' : d.status==='offline' ? ' <span style="color:var(--offline);font-size:10px;">离线</span>' : '') +
+      (d.status==='unbound' ? ' <span style="color:var(--offline);font-size:10px;">' + __('devices.unbound_tag') + '</span>' : d.status==='offline' ? ' <span style="color:var(--offline);font-size:10px;">' + __('devices.offline_tag') + '</span>' : '') +
       '</div>';
     var cvs = document.createElement('canvas');
     cvs.style.cssText = 'width:100%;aspect-ratio:' + (d.resolution||'720x1600').replace('x','/') + ';background:#000;';
     var btns = document.createElement('div');
     btns.style.cssText = 'display:flex;gap:4px;padding:6px 10px;';
-    btns.innerHTML = '<button style="flex:1;padding:4px 0;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;">🏠 主页</button>' +
-      '<button style="flex:1;padding:4px 0;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;">← 返回</button>';
+    btns.innerHTML = '<button style="flex:1;padding:4px 0;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;">🏠 ' + __('grid.home') + '</button>' +
+      '<button style="flex:1;padding:4px 0;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;">← ' + __('grid.back') + '</button>';
     btns.children[0].onclick = function(e) { e.stopPropagation(); send({type:'cmd_key', device_id: d.id, key:'home'}); };
     btns.children[1].onclick = function(e) { e.stopPropagation(); send({type:'cmd_key', device_id: d.id, key:'back'}); };
     card.appendChild(cvs);
     card.appendChild(btns);
     
-    // 文本输入行
+    // Text input row
     var txtRow = document.createElement('div');
     txtRow.style.cssText = 'display:flex;gap:3px;padding:0 10px 4px 10px;';
     var txtInp = document.createElement('input');
-    txtInp.placeholder = '文字...';
+    txtInp.placeholder = __('grid.text_placeholder');
     txtInp.style.cssText = 'flex:1;padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:10px;outline:none;min-width:0;';
     var txtBtn = document.createElement('button');
-    txtBtn.textContent = '发';
+    txtBtn.textContent = __('grid.send');
     txtBtn.style.cssText = 'padding:3px 8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:10px;';
     txtBtn.onclick = function(e) { e.stopPropagation(); var v=txtInp.value.trim(); if(v){ send({type:'cmd_input', device_id:d.id, text:v}); txtInp.value=''; } };
     txtInp.onkeydown = function(e) { if(e.key==='Enter'){ e.stopPropagation(); var v=txtInp.value.trim(); if(v){ send({type:'cmd_input', device_id:d.id, text:v}); txtInp.value=''; } } };
     txtRow.appendChild(txtInp); txtRow.appendChild(txtBtn);
     card.appendChild(txtRow);
     
-    // AI 任务行
+    // AI task row
     var aiRow = document.createElement('div');
     aiRow.style.cssText = 'display:flex;gap:3px;padding:0 10px 6px 10px;';
     var aiInp = document.createElement('input');
-    aiInp.placeholder = 'AI 任务...';
+    aiInp.placeholder = __('grid.ai_task_placeholder');
     aiInp.style.cssText = 'flex:1;padding:3px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:10px;outline:none;min-width:0;';
     var aiBtn = document.createElement('button');
     aiBtn.textContent = '▶';
@@ -340,12 +340,12 @@ function buildGrid() {
     
     container.appendChild(card);
     
-    // 绑定点击事件
+    // Bind click events
     (function(devId, cvsEl) {
       var touchStart = null, touchStartTime = 0;
       cvsEl.addEventListener('mousedown', function(e) {
         var rect = cvsEl.getBoundingClientRect();
-        // 使用 canvas 像素尺寸（与 JPEG 流一致），而非设备屏幕分辨率
+        // Use canvas pixel dimensions (consistent with JPEG stream), not device screen resolution
         var sx = cvsEl.width || devW || 720;
         var sy = cvsEl.height || devH || 1600;
         touchStart = { x: Math.round((e.clientX - rect.left) * (sx / rect.width)), y: Math.round((e.clientY - rect.top) * (sy / rect.height)) };
@@ -370,6 +370,6 @@ function buildGrid() {
     })(d.id, cvs);
     deviceCanvases[d.id] = {canvas: cvs, ctx: cvs.getContext('2d'), img: new Image(), devW: 720, devH: 1600};
   });
-  countEl.textContent = devices.length + ' 台设备';
+  countEl.textContent = devices.length + ' ' + __('grid.units');
 }
 

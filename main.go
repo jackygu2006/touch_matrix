@@ -24,7 +24,7 @@ import (
 var bgCtx = context.Background()
 var db *sql.DB
 
-// 版本自增：格式 2026.7.13.1（年.月.日.当日序号），每次启动自动递增
+// bumpVersion increments the version: format 2026.7.13.1 (year.month.day.sequence), auto-bumped on each start
 func bumpVersion() string {
 	today := time.Now().Format("2006.1.2")
 	data, _ := os.ReadFile("VERSION")
@@ -261,7 +261,7 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 	if u != nil && u.Role != "admin" {
 		current := countDevicesForUser(u.ID) + countPendingBindsForUser(u.ID)
 		if current >= u.MaxDevices {
-			writeJSON(w, 400, map[string]string{"error": fmt.Sprintf("设备配额已满（%d/%d）", current, u.MaxDevices)})
+			writeJSON(w, 400, map[string]string{"error": fmt.Sprintf("device quota full (%d/%d)", current, u.MaxDevices)})
 			return
 		}
 	}
@@ -274,7 +274,7 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 		userID = u.ID
 	}
 
-	// 清理旧设备记录（保留在线设备，避免断连）
+	// Clean up old device records (keep online devices to avoid disconnection)
 	db.Exec("DELETE FROM devices WHERE id=? AND status != 'online'", deviceID)
 
 	_, err = db.Exec(`INSERT INTO device_codes (code, device_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`, req.Code, deviceID, userID, tokenHash)
@@ -574,7 +574,7 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
-		// CSS/JS 不需要鉴权
+		// CSS/JS do not need auth
 		if strings.HasSuffix(r.URL.Path, ".css") || strings.HasSuffix(r.URL.Path, ".js") {
 			fs.ServeHTTP(w, r)
 			return

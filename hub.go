@@ -121,7 +121,7 @@ func (h *Hub) unregisterDevice(deviceID string, dc *deviceConn) {
 	}
 	h.mu.Unlock()
 
-	// 只有确认是自己的连接才执行离线操作
+	// Only perform offline operations when confirmed as our own connection
 	if ok && current == dc {
 		setDeviceOffline(deviceID)
 		h.broadcastDeviceList()
@@ -166,7 +166,7 @@ func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
 		return
 	}
 
-	// 先收集匹配的 dash 连接，再释放锁后写入
+	// Collect matching dash connections first, then write after releasing the lock
 	h.mu.RLock()
 	var targets []*dashConn
 	for dc := range h.dash {
@@ -293,8 +293,8 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	dev, err := verifyDeviceToken(authMsg.DeviceID, authMsg.Token)
 	log.Printf("[ws/device] auth attempt: deviceID=%s tokenLen=%d", authMsg.DeviceID, len(authMsg.Token))
 	if err != nil || dev == nil {
-		// 设备不存在：检查是否有待绑定的token
-		// 检查 device_codes 中所有待绑定的 token
+		// Device not found: check for pending bind tokens
+		// Check all pending bind tokens in device_codes
 		rows, err2 := db.Query("SELECT token_hash FROM device_codes WHERE device_id=? AND token_hash IS NOT NULL", authMsg.DeviceID)
 		if err2 == nil {
 			defer rows.Close()
@@ -374,7 +374,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	for {
-		// 15s 读超时：设备每 5s 发送 device_ping，3 倍容错即可快速检测断连
+		// 15s read timeout: devices send device_ping every 5s, 3x tolerance for fast disconnection detection
 		readCtx, cancel := context.WithTimeout(bgCtx, 15*time.Second)
 		msgType, data, err := c.Read(readCtx)
 		cancel()
@@ -396,7 +396,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 				switch msg.Type {
 				case "pong":
 				case "device_ping":
-					// 设备主动探测延迟，原样回传时间戳
+					// Device actively probes latency, echo the timestamp back
 					c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{
 						Type: "device_pong", Text: msg.Text,
 					}))
@@ -492,7 +492,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 	devices, _ := getDevices()
 	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
 
-	// 定期同步设备状态（10s），检测变化时修正掉帧
+	// Periodically sync device status (10s), correct missed updates when changes detected
 	syncDone := make(chan struct{})
 	defer close(syncDone)
 	go func() {
@@ -503,7 +503,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 			case <-syncDone:
 				return
 			case <-ticker.C:
-				// P03: 设备列表未变化时跳过 DB 查询
+				// P03: skip DB query when device list hasn't changed
 				hub.mu.RLock()
 				curVersion := hub.deviceVersion
 				hub.mu.RUnlock()
@@ -553,7 +553,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 			if msg.DeviceID != "" {
 				if err := hub.sendToDevice(msg.DeviceID, msg); err != nil {
 					c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{
-						Type: "error", Reason: fmt.Sprintf("发送命令到设备失败: %s", err.Error()),
+						Type: "error", Reason: fmt.Sprintf("send command to device failed: %s", err.Error()),
 					}))
 					log.Printf("[ws/dash] send command to device %s failed: %v", msg.DeviceID, err)
 				} else {

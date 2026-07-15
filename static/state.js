@@ -28,19 +28,19 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
     if (!resp.ok) { localStorage.removeItem('nftouch_token'); location.href = '/login.html'; return; }
     var data = await resp.json();
     if (data.role === 'admin') {
-      document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()">用户管理</button>';
+      document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()">' + __('sidebar.user_management') + '</button>';
     }
-    // 版本号插入到 admin 按钮下方
+    // Insert version below the admin button
     document.getElementById('sidebar-footer').innerHTML += '<div id="server-version" style="padding:8px 0 0 0;font-size:10px;color:var(--text2);text-align:center;"></div>';
     var ui = document.getElementById('user-info');
   ui.style.display = 'block';
   var txt = (data.nickname || data.email);
-  if (data.role !== 'admin' && data.max_devices) txt += ' · ' + data.max_devices + '台配额';
-  if (data.role === 'admin') txt += ' · 管理员';
+  if (data.role !== 'admin' && data.max_devices) txt += ' · ' + data.max_devices + __('sidebar.quota');
+  if (data.role === 'admin') txt += ' · ' + __('sidebar.admin');
   ui.textContent = txt;
   } catch(e) { location.href = '/login.html'; return; }
 
-  // 拉取服务端版本号
+  // Fetch server version
   fetch('/api/version').then(r => r.json()).then(d => {
     var el = document.getElementById('server-version');
     if (el && d.version) el.textContent = 'v' + d.version;
@@ -63,13 +63,13 @@ function toast(msg, style) {
 // WebSocket
 // ============================================================
 function connect() {
-  updateStatus('connecting', '连接中...');
+  updateStatus('connecting', __('status.connecting'));
   ws = new WebSocket(wsUrl);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
-    updateStatus('connected', '已连接');
-    // 通过 REST API 拉取设备列表作为兜底
+    updateStatus('connected', __('status.connected'));
+    // Fetch device list via REST API as fallback
     fetch('/api/devices', {headers:{'Authorization':'Bearer '+localStorage.getItem('nftouch_token')}})
       .then(r=>r.json()).then(d=>{if(Array.isArray(d)){devices=d;if(typeof renderDeviceList==='function')renderDeviceList();}})
       .catch(function(){});
@@ -95,7 +95,7 @@ function connect() {
           if (typeof handleTaskStatus === 'function') handleTaskStatus(msg);
           break;
         case 'error':
-          toast('错误: ' + msg.reason, 'error');
+          toast(__('status.error') + ': ' + msg.reason, 'error');
           break;
       }
     } else if (e.data instanceof ArrayBuffer) {
@@ -109,7 +109,7 @@ function connect() {
           dc.img.onload = function() {
             dc.canvas.width = dc.img.naturalWidth;
             dc.canvas.height = dc.img.naturalHeight;
-            // 同步 CSS 宽高比与实际帧尺寸，防止 Grid 模式点击偏移
+            // Sync CSS aspect ratio with actual frame size to prevent click offset in Grid mode
             if (dc.img.naturalHeight > 0) {
               dc.canvas.style.aspectRatio = (dc.img.naturalWidth / dc.img.naturalHeight).toString();
             }
@@ -128,10 +128,10 @@ function connect() {
           devH = img.naturalHeight;
           window._jpgW = devW; window._jpgH = devH;
           window._calSrc = 'jpg';
-          // Canvas 内部坐标系对齐设备分辨率
+          // Align internal canvas coordinate system with device resolution
           canvas.width = devW;
           canvas.height = devH;
-          // 保持宽高比适配容器
+          // Maintain aspect ratio to fit container
           var container = document.getElementById('screen-canvas-area');
           var scale = Math.min(container.clientWidth / devW, container.clientHeight / devH);
           canvas.style.width = (devW * scale) + 'px';
@@ -149,7 +149,7 @@ function connect() {
   };
 
   ws.onclose = () => {
-    updateStatus('disconnected', '已断开，5s 后重连...');
+    updateStatus('disconnected', __('status.disconnected'));
     setTimeout(connect, 5000);
   };
 
@@ -169,7 +169,7 @@ function updateStatus(status, text) {
 }
 
 // ============================================================
-// 可拖拽分隔条
+// Draggable resize handle
 // ============================================================
 (function() {
   var dragging = null;
@@ -181,7 +181,7 @@ function updateStatus(status, text) {
     var target = document.getElementById(targetId);
     if (!handle || !target) return;
 
-    // 恢复上次保存的大小
+    // Restore last saved size
     var saved = localStorage.getItem(storageKey);
     if (saved) {
       var w = parseInt(saved);
@@ -216,9 +216,9 @@ function updateStatus(status, text) {
     dragging = null;
   });
 
-  // 分隔条 1: sidebar(左) 与 main(右)，拖拽改变 sidebar 宽度
+  // Handle 1: sidebar(left) vs main(right), drag to resize sidebar width
   initHandle('resize-sidebar', 'sidebar', false, 180, 500, 'nftouch_sidebar_w');
 
-  // 分隔条 2: screen-canvas-area(左) 与 task-panel(右)，拖拽改变 task-panel 宽度
+  // Handle 2: screen-canvas-area(left) vs task-panel(right), drag to resize task-panel width
   initHandle('resize-task', 'task-panel', true, 200, 600, 'nftouch_task_w');
 })();
