@@ -76,9 +76,9 @@ function renderDeviceList() {
         permWarnEl.style.display = 'none';
       }
 
-      // If missing accessibility and no frames yet, hide canvas to prevent showing stale frames from previous device
+      // If no frames yet, hide canvas to prevent showing stale frames from previous device
       var hasFrame = dev.last_frame && new Date(dev.last_frame).getTime() > 0;
-      if (!hasFrame && missingPerms.indexOf('accessibility') >= 0) {
+      if (!hasFrame) {
         document.getElementById('screen-placeholder').classList.remove('hidden');
         canvas.classList.add('hidden');
         return;
