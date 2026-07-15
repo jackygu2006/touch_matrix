@@ -109,7 +109,7 @@ func (h *Hub) registerDevice(deviceID string, dc *deviceConn) {
 			}
 		}
 	}
-	h.broadcastDeviceList()
+	hub.broadcastDeviceList()
 	log.Printf("[hub] device %s connected", deviceID)
 }
 
@@ -124,7 +124,7 @@ func (h *Hub) unregisterDevice(deviceID string, dc *deviceConn) {
 	// Only perform offline operations when confirmed as our own connection
 	if ok && current == dc {
 		setDeviceOffline(deviceID)
-		h.broadcastDeviceList()
+		hub.broadcastDeviceList()
 		log.Printf("[hub] device %s disconnected", deviceID)
 	}
 }
@@ -438,6 +438,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 						dc.permissions = info.Permissions
 						dc.screenOn = info.ScreenOn
 						dc.mu.Unlock()
+						hub.broadcastDeviceList()
 					}
 				default:
 					log.Printf("[ws/device] %s unknown message type: %s", deviceID, msg.Type)
@@ -576,7 +577,7 @@ func (h *Hub) watchdog() {
 	defer ticker.Stop()
 	for range ticker.C {
 		h.checkDevices()
-		go h.broadcastDeviceList()
+		go hub.broadcastDeviceList()
 	}
 }
 

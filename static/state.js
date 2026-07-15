@@ -27,6 +27,7 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
     });
     if (!resp.ok) { localStorage.removeItem('nftouch_token'); location.href = '/login.html'; return; }
     var data = await resp.json();
+    window._profileData = data;  // Save for language switch re-render
     if (data.role === 'admin') {
       document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()" data-i18n="sidebar.user_management">' + __('sidebar.user_management') + '</button>';
     }
@@ -36,11 +37,8 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
       '<span id="lang-switch" style="cursor:pointer;padding:1px 6px;border:1px solid var(--border);border-radius:4px;font-size:10px;line-height:1.4;" title="Switch language">ZH</span>' +
       '</div>';
     var ui = document.getElementById('user-info');
-  ui.style.display = 'block';
-  var txt = (data.nickname || data.email);
-  if (data.role !== 'admin' && data.max_devices) txt += ' · ' + data.max_devices + __('sidebar.quota');
-  if (data.role === 'admin') txt += ' · ' + __('sidebar.admin');
-  ui.textContent = txt;
+    ui.style.display = 'block';
+    renderUserInfo();
   } catch(e) { location.href = '/login.html'; return; }
 
   // Fetch server version
@@ -65,6 +63,17 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 
   // connect() is called at end of ui.js
 })();
+
+function renderUserInfo() {
+  var data = window._profileData;
+  if (!data) return;
+  var ui = document.getElementById('user-info');
+  if (!ui) return;
+  var txt = (data.nickname || data.email);
+  if (data.role !== 'admin' && data.max_devices) txt += ' · ' + data.max_devices + __('sidebar.quota');
+  if (data.role === 'admin') txt += ' · ' + __('sidebar.admin');
+  ui.textContent = txt;
+}
 
 function toast(msg, style) {
   var el = document.getElementById('status-left');

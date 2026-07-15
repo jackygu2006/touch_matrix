@@ -5,7 +5,6 @@ function sendText() {
   const text = input.value;
   if (!text) return;
   send({type: 'cmd_input', device_id: activeDeviceId, text: text});
-  showTaskMsg(__('task.sent') + ': ' + text.substring(0, 30));
   input.value = '';
 }
 
