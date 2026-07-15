@@ -6,3 +6,9 @@ deploy.sh
 nftouch-server
 nftouch-server-macos
 apkclaw-server
+
+# Terminal recording
+typescript
+
+# Screenshots
+/screenshot/
