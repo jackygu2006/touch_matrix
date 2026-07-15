@@ -30,8 +30,11 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
     if (data.role === 'admin') {
       document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()">' + __('sidebar.user_management') + '</button>';
     }
-    // Insert version below the admin button
-    document.getElementById('sidebar-footer').innerHTML += '<div id="server-version" style="padding:8px 0 0 0;font-size:10px;color:var(--text2);text-align:center;"></div>';
+    // Insert version + language switch below the admin button
+    document.getElementById('sidebar-footer').innerHTML += '<div id="server-version" style="padding:8px 0 0 0;font-size:10px;color:var(--text2);text-align:center;display:flex;align-items:center;justify-content:center;gap:8px;">' +
+      '<span id="version-text"></span>' +
+      '<span id="lang-switch" style="cursor:pointer;padding:1px 6px;border:1px solid var(--border);border-radius:4px;font-size:10px;line-height:1.4;" title="Switch language">ZH</span>' +
+      '</div>';
     var ui = document.getElementById('user-info');
   ui.style.display = 'block';
   var txt = (data.nickname || data.email);
@@ -42,9 +45,23 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 
   // Fetch server version
   fetch('/api/version').then(r => r.json()).then(d => {
-    var el = document.getElementById('server-version');
+    var el = document.getElementById('version-text');
     if (el && d.version) el.textContent = 'v' + d.version;
   }).catch(function(){});
+
+  // Language switch handler
+  document.getElementById('lang-switch').onclick = function() {
+    var current = localStorage.getItem('nftouch_lang') || (navigator.language.startsWith('zh') ? 'zh' : 'en');
+    var next = current === 'zh' ? 'en' : 'zh';
+    __setLang(next);
+    this.textContent = next === 'zh' ? 'ZH' : 'EN';
+  };
+  // Set initial language switch text
+  (function() {
+    var lang = localStorage.getItem('nftouch_lang') || (navigator.language.startsWith('zh') ? 'zh' : 'en');
+    var sw = document.getElementById('lang-switch');
+    if (sw) sw.textContent = lang === 'zh' ? 'ZH' : 'EN';
+  })();
 
   // connect() is called at end of ui.js
 })();
