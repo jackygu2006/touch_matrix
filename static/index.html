@@ -123,7 +123,7 @@
 
 <div class="modal-overlay hidden" id="admin-modal">
   <div class="modal" style="width:600px;max-height:80vh;overflow-y:auto;">
-    <h3 data-i18n="admin.user_management_title">用户管理 <button class="quick-btn" onclick="showNewUserDialog()" style="margin-left:12px;" data-i18n="admin.new_user_btn">+ 新建用户</button></h3>
+    <h3><span data-i18n="admin.user_management_title">用户管理</span> <button class="quick-btn" onclick="showNewUserDialog()" style="margin-left:12px;" data-i18n="admin.new_user_btn">+ 新建用户</button></h3>
     <table style="width:100%;border-collapse:collapse;font-size:13px;" id="admin-user-table">
       <tr style="color:var(--text2);"><th style="text-align:left;padding:8px;" data-i18n="admin.email_th">邮箱</th><th data-i18n="admin.role_th">角色</th><th data-i18n="admin.quota_th">设备配额</th><th data-i18n="admin.status_th">状态</th><th data-i18n="admin.actions_th">操作</th></tr>
     </table>
@@ -140,7 +140,7 @@
     <input id="eu-email" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="user@example.com" data-i18n-placeholder="edit_user.email_placeholder">
     <label id="eu-nick-label" style="font-size:12px;color:var(--text2);" data-i18n="edit_user.nick_label">昵称</label>
     <input id="eu-nickname" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="显示名称" data-i18n-placeholder="edit_user.nick_placeholder">
-    <label style="font-size:12px;color:var(--text2);" data-i18n="edit_user.password_label">密码<span id="eu-pw-hint" style="color:var(--text2);" data-i18n="admin.password_hint">（留空不修改）</span></label>
+    <label style="font-size:12px;color:var(--text2);"><span data-i18n="edit_user.password_label">密码</span><span id="eu-pw-hint" style="color:var(--text2);" data-i18n="admin.password_hint">（留空不修改）</span></label>
     <input id="eu-password" type="password" style="font-size:14px;padding:8px 12px;margin-bottom:8px;">
     <label style="font-size:12px;color:var(--text2);" data-i18n="edit_user.quota_label">设备配额</label>
     <input id="eu-quota" type="number" min="1" style="font-size:14px;padding:8px 12px;margin-bottom:12px;width:80px;">
