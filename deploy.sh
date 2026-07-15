@@ -23,6 +23,7 @@ echo ""
 echo "=== 3. 上传文件 ==="
 ssh "$SERVER" "mkdir -p $REMOTE_DIR/static"
 scp nftouch-server "$SERVER:$REMOTE_DIR/" || exit 1
+scp VERSION "$SERVER:$REMOTE_DIR/" || exit 1
 scp static/*.html static/*.css static/*.js "$SERVER:$REMOTE_DIR/static/" || exit 1
 echo "上传完成"
 
@@ -35,7 +36,7 @@ cd $REMOTE_DIR
 pkill -9 -f nftouch-server 2>/dev/null
 sleep 1
 set -a; source $REMOTE_DIR/.env; set +a
-nohup ./nftouch-server </dev/null > nftouch.log 2>&1 &
+SKIP_BUMP=true nohup ./nftouch-server </dev/null > nftouch.log 2>&1 &
 echo \$! > /tmp/nftouch.pid
 SCRIPT
 bash /tmp/start-nftouch.sh"

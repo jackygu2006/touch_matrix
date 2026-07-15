@@ -610,7 +610,10 @@ func main() {
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	version := bumpVersion()
+	version := getVersion()
+	if os.Getenv("SKIP_BUMP") != "true" {
+		version = bumpVersion()
+	}
 	log.Printf("=== NFTouch Server v%s ===", version)
 	log.Printf("Listen: %s", listenAddr)
 
