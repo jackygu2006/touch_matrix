@@ -92,6 +92,12 @@
     });
   };
 
-  // Load the locale
-  loadLocale(lang);
+  // Load the locale and auto-apply when ready
+  loadLocale(lang, function() {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', window.__applyI18n);
+    } else {
+      window.__applyI18n();
+    }
+  });
 })();

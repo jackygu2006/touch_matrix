@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>小奈Matrix · 登录</title>
+<title data-i18n="login.title">小奈Matrix · 登录</title>
 <style>
 :root {
   --bg: #0f1117; --surface: #1a1d27; --border: #2a2e3e;
@@ -24,17 +24,18 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sa
 </head>
 <body>
 <div class="login-box">
-  <h1>小奈Matrix</h1>
+  <h1 data-i18n="login.heading">小奈Matrix</h1>
   <div class="ver">v0.2.0</div>
   <form onsubmit="doLogin(event)">
-    <label>邮箱</label>
+    <label data-i18n="login.email_label">邮箱</label>
     <input id="email" type="email" value="admin@nftouch.local" autofocus>
-    <label>密码</label>
-    <input id="password" type="password" placeholder="请输入密码">
-    <button type="submit">登 录</button>
+    <label data-i18n="login.password_label">密码</label>
+    <input id="password" type="password" placeholder="请输入密码" data-i18n-placeholder="login.password_placeholder">
+    <button type="submit" data-i18n="login.submit">登 录</button>
     <div class="error" id="error"></div>
   </form>
 </div>
+<script src="i18n.js"></script>
 <script>
 async function doLogin(e) {
   e.preventDefault();
@@ -53,10 +54,10 @@ async function doLogin(e) {
       localStorage.setItem('nftouch_user', JSON.stringify({email:data.email, nickname:data.nickname, role:data.role}));
       location.replace('/');
     } else {
-      document.getElementById('error').textContent = data.error || '登录失败';
+      document.getElementById('error').textContent = data.error || __('login.failed');
     }
   } catch(ex) {
-    document.getElementById('error').textContent = '网络错误';
+    document.getElementById('error').textContent = __('login.network_error');
   }
 }
 </script>

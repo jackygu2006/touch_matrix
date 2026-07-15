@@ -3,27 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>小奈Matrix · MVP</title>
+<title data-i18n="page.title">小奈Matrix · MVP</title>
 <link rel="stylesheet" href="style.css">
 <body>
 <div id="app">
   <div id="sidebar">
     <div id="sidebar-header">
-      <h2>小奈 Matrix</h2>
+      <h2 data-i18n="app.title">小奈 Matrix</h2>
       <div style="display:flex;gap:6px;">
-        <button id="grid-toggle" onclick="toggleGrid()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="综合看板">▦</button>
-        <button onclick="logout()" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="登出">⤺</button>
+        <button id="grid-toggle" onclick="toggleGrid()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="" data-i18n-title="control.grid_view_title">▦</button>
+        <button onclick="logout()" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="" data-i18n-title="control.logout_title">⤺</button>
       </div>
     </div>
     <div id="user-info" style="padding:4px 20px 8px 20px;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border);display:none;"></div>
     <div id="device-list"></div>
     <div id="sort-bar" style="padding:4px 8px;display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);">
       <button onclick="sortDevices('id')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">ID <span id="sort-id-dir"></span></button>
-      <button onclick="sortDevices('model')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">型号</button>
-      <button onclick="sortDevices('time')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">绑定时间</button>
+      <button data-i18n="sort.model_btn" onclick="sortDevices('model')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">型号</button>
+      <button data-i18n="sort.time_btn" onclick="sortDevices('time')" class="sort-btn" style="padding:2px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text2);border-radius:4px;cursor:pointer;font-size:10px;">绑定时间</button>
     </div>
     <div id="sidebar-footer">
-      <button class="sidebar-btn" onclick="showBindModal()">+ 绑定设备</button>
+      <button class="sidebar-btn" onclick="showBindModal()" data-i18n="sidebar.bind_device">+ 绑定设备</button>
     </div>
   </div>
   <div class="resize-handle resize-handle-v" id="resize-sidebar"></div>
@@ -36,51 +36,51 @@
         </div>
         <canvas id="screen-canvas" class="hidden"></canvas>
         <div id="perm-warning" style="display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.15);border:1px solid var(--warn);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--warn);text-align:center;z-index:10;white-space:nowrap;"></div>
-        <div id="screen-warning" style="display:none;position:absolute;top:38px;left:50%;transform:translateX(-50%);background:rgba(96,165,250,.12);border:1px solid var(--info);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--info);text-align:center;z-index:10;white-space:nowrap;">📱 设备屏幕已关闭</div>
+        <div id="screen-warning" style="display:none;position:absolute;top:38px;left:50%;transform:translateX(-50%);background:rgba(96,165,250,.12);border:1px solid var(--info);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--info);text-align:center;z-index:10;white-space:nowrap;">data-i18n="screen_warning.off">📱 设备屏幕已关闭</div>
       </div>
       <div class="resize-handle resize-handle-v" id="resize-task"></div>
       <div id="task-panel">
         <div id="task-panel-header">
-          <span>AI 任务</span>
-          <button id="history-btn" onclick="toggleTaskHistory()" title="历史记录" style="margin-left:auto;background:none;border:none;color:var(--text2);cursor:pointer;font-size:15px;padding:0 4px;line-height:1;">⏱</button>
+          <span data-i18n="task.ai_task">AI 任务</span>
+          <button id="history-btn" onclick="toggleTaskHistory()" title="" data-i18n-title="task.history_title" style="margin-left:auto;background:none;border:none;color:var(--text2);cursor:pointer;font-size:15px;padding:0 4px;line-height:1;">⏱</button>
         </div>
         <div id="task-chat"></div>
         <div id="task-history-list" style="display:none;"></div>
         <div id="task-panel-inputs">
           <div style="position:relative;">
-            <textarea id="task-input" placeholder="输入任务，如：打开小红书发一篇笔记..." rows="3" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendTask();}"></textarea>
-            <button id="execute-btn" onclick="sendTask()" title="发送 (Enter)">➤</button>
+            <textarea id="task-input" placeholder="输入任务，如：打开小红书发一篇笔记..." data-i18n-placeholder="task.input_placeholder" rows="3" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendTask();}"></textarea>
+            <button id="execute-btn" onclick="sendTask()" title="" data-i18n-title="task.send_title">➤</button>
           </div>
         </div>
       </div>
     </div>
     <div id="grid-view" style="display:none;flex:1;overflow-y:auto;padding:12px;flex-wrap:wrap;gap:12px;align-content:flex-start;background:#000;">
       <div id="grid-toolbar" style="width:100%;padding:0 0 8px 0;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text2);">
-        每行 <select id="grid-cols" onchange="buildGrid()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:12px;">
+        data-i18n="grid.per_row">每行 <select id="grid-cols" onchange="buildGrid()" style="background:var(--bg);border:1px solid var(--border);color:var(--text);padding:2px 6px;border-radius:4px;font-size:12px;">
           <option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option>
-        </select> 台
+        </select> <span data-i18n="grid.units">台</span>
         <span style="flex:1;"></span>
         <span id="grid-count"></span>
       </div>
       <div id="grid-container" style="display:flex;flex-wrap:wrap;gap:12px;align-content:flex-start;width:100%;"></div>
     </div>
     <div id="control-bar">
-      <button class="quick-btn" onclick="sendKey('home')" title="主页">⌂ 主页</button>
-      <button class="quick-btn" onclick="sendKey('back')" title="返回">↩ 返回</button>
+      <button class="quick-btn" onclick="sendKey('home')" title="" data-i18n-title="control.home" data-i18n="control.home">⌂ 主页</button>
+      <button class="quick-btn" onclick="sendKey('back')" title="" data-i18n-title="control.back" data-i18n="control.back">↩ 返回</button>
       <!-- <span style="color:var(--border);margin:0 2px;user-select:none;">│</span> -->
-      <button class="quick-btn" onclick="sendGesture('up')" title="上滑">↑ 上滑</button>
-      <button class="quick-btn" onclick="sendGesture('down')" title="下滑">↓ 下滑</button>
-      <button class="quick-btn" onclick="sendGesture('left')" title="左滑">← 左滑</button>
-      <button class="quick-btn" onclick="sendGesture('right')" title="右滑">→ 右滑</button>
-      <button class="quick-btn" onclick="sendGesture('notify')" title="拉下通知栏">✉ 通知栏</button>
-      <button class="quick-btn warn" onclick="sendKey('lock')" title="锁屏">⏻ 锁屏</button>
-      <input id="text-input" placeholder="发送文字到手机..." onkeydown="if(event.key==='Enter'){sendText();event.preventDefault();}">
-      <button class="quick-btn" onclick="sendText()" title="将文字粘贴到手机当前输入框">发送</button>
+      <button class="quick-btn" onclick="sendGesture('up')" title="" data-i18n-title="control.swipe_up" data-i18n="control.swipe_up">↑ 上滑</button>
+      <button class="quick-btn" onclick="sendGesture('down')" title="" data-i18n-title="control.swipe_down" data-i18n="control.swipe_down">↓ 下滑</button>
+      <button class="quick-btn" onclick="sendGesture('left')" title="" data-i18n-title="control.swipe_left" data-i18n="control.swipe_left">← 左滑</button>
+      <button class="quick-btn" onclick="sendGesture('right')" title="" data-i18n-title="control.swipe_right" data-i18n="control.swipe_right">→ 右滑</button>
+      <button class="quick-btn" onclick="sendGesture('notify')" title="" data-i18n-title="control.notify" data-i18n="control.notify">✉ 通知栏</button>
+      <button class="quick-btn warn" onclick="sendKey('lock')" title="" data-i18n-title="control.lock" data-i18n="control.lock">⏻ 锁屏</button>
+      <input id="text-input" placeholder="发送文字到手机..." data-i18n-placeholder="control.text_placeholder" onkeydown="if(event.key==='Enter'){sendText();event.preventDefault();}">
+      <button class="quick-btn" onclick="sendText()" title="" data-i18n-title="control.text_title" data-i18n="control.send_text">发送</button>
     </div>
     <div id="status-bar">
-      <span id="status-left">未连接</span>
+      <span id="status-left" data-i18n="status.not_connected">未连接</span>
       <span id="status-right">
-        &nbsp;<a href="#" onclick="send({type:'refresh'});return false;" style="color:var(--accent);text-decoration:none;">刷新</a>
+        &nbsp;<a href="#" onclick="send({type:'refresh'});return false;" style="color:var(--accent);text-decoration:none;" data-i18n="status.refresh">刷新</a>
       </span>
     </div>
   </div>
@@ -88,24 +88,24 @@
 
 <div class="modal-overlay hidden" id="bind-modal">
   <div class="modal">
-    <h3>绑定设备</h3>
+    <h3 data-i18n="bind.title">绑定设备</h3>
     <div id="bind-step1">
-      <p style="color:var(--text2);font-size:13px;margin-bottom:16px;">在手机上打开 NFTouch → 设置 → 云控绑定，获取 6 位配对码</p>
-      <input id="code-input" type="text" maxlength="6" placeholder="000000" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+      <p style="color:var(--text2);font-size:13px;margin-bottom:16px;" data-i18n="bind.hint">在手机上打开 NFTouch → 设置 → 云控绑定，获取 6 位配对码</p>
+      <input id="code-input" type="text" maxlength="6" placeholder="000000" data-i18n-placeholder="bind.code_placeholder" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
       <div class="error hidden" id="bind-error"></div>
       <div class="actions">
-        <button class="btn-cancel" onclick="hideBindModal()">取消</button>
-        <button class="btn-confirm" onclick="doBind()">确认绑定</button>
+        <button class="btn-cancel" onclick="hideBindModal()" data-i18n="common.cancel">取消</button>
+        <button class="btn-confirm" onclick="doBind()" data-i18n="bind.confirm_bind">确认绑定</button>
       </div>
     </div>
     <div id="bind-result" class="hidden" style="text-align:center;">
       <div style="font-size:48px;margin:16px 0;color:var(--online);">✓</div>
-      <p style="color:var(--text2);font-size:13px;margin-bottom:8px;">设备 <strong id="bind-device-id"></strong></p>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:8px;" data-i18n="bind.result_device">设备 <strong id="bind-device-id"></strong></p>
       <div style="background:var(--bg);border:1px solid var(--accent);border-radius:8px;padding:12px;word-break:break-all;font-family:monospace;font-size:11px;color:var(--accent);margin:12px 0;" id="bind-token"></div>
-      <p style="color:var(--text2);font-size:12px;">复制以上 Token，在手机上填入</p>
+      <p style="color:var(--text2);font-size:12px;" data-i18n="bind.result_token_hint">复制以上 Token，在手机上填入</p>
       <div class="actions" style="margin-top:16px;">
-        <button class="btn-confirm" onclick="copyToken()" style="margin-right:8px;">复制 Token</button>
-        <button class="btn-cancel" onclick="hideBindModal()">关闭</button>
+        <button class="btn-confirm" onclick="copyToken()" style="margin-right:8px;" data-i18n="bind.copy_token_btn">复制 Token</button>
+        <button class="btn-cancel" onclick="hideBindModal()" data-i18n="bind.close_btn">关闭</button>
       </div>
     </div>
   </div>
@@ -113,42 +113,42 @@
 
 <div class="modal-overlay hidden" id="dev-settings-modal">
   <div class="modal" style="width:400px;">
-    <h3 id="dev-settings-title">设备设置</h3>
+    <h3 id="dev-settings-title" data-i18n="dev_settings.title">设备设置</h3>
     <div id="dev-settings-content"></div>
     <div class="actions" style="margin-top:12px;">
-      <button class="btn-cancel" onclick="document.getElementById('dev-settings-modal').classList.add('hidden')">关闭</button>
+      <button class="btn-cancel" onclick="document.getElementById('dev-settings-modal').classList.add('hidden')" data-i18n="dev_settings.close_btn">关闭</button>
     </div>
   </div>
 </div>
 
 <div class="modal-overlay hidden" id="admin-modal">
   <div class="modal" style="width:600px;max-height:80vh;overflow-y:auto;">
-    <h3>用户管理 <button class="quick-btn" onclick="showNewUserDialog()" style="margin-left:12px;">+ 新建用户</button></h3>
+    <h3 data-i18n="admin.user_management_title">用户管理 <button class="quick-btn" onclick="showNewUserDialog()" style="margin-left:12px;" data-i18n="admin.new_user_btn">+ 新建用户</button></h3>
     <table style="width:100%;border-collapse:collapse;font-size:13px;" id="admin-user-table">
-      <tr style="color:var(--text2);"><th style="text-align:left;padding:8px;">邮箱</th><th>角色</th><th>设备配额</th><th>状态</th><th>操作</th></tr>
+      <tr style="color:var(--text2);"><th style="text-align:left;padding:8px;" data-i18n="admin.email_th">邮箱</th><th data-i18n="admin.role_th">角色</th><th data-i18n="admin.quota_th">设备配额</th><th data-i18n="admin.status_th">状态</th><th data-i18n="admin.actions_th">操作</th></tr>
     </table>
     <div class="actions" style="margin-top:12px;">
-      <button class="btn-cancel" onclick="document.getElementById('admin-modal').classList.add('hidden')">关闭</button>
+      <button class="btn-cancel" onclick="document.getElementById('admin-modal').classList.add('hidden')" data-i18n="admin.close_btn">关闭</button>
     </div>
   </div>
 </div>
 
 <div class="modal-overlay hidden" id="edit-user-modal">
   <div class="modal" style="width:380px;">
-    <h3 id="edit-user-title">编辑用户</h3>
-    <label id="eu-email-label" style="font-size:12px;color:var(--text2);">邮箱</label>
-    <input id="eu-email" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="user@example.com">
-    <label id="eu-nick-label" style="font-size:12px;color:var(--text2);">昵称</label>
-    <input id="eu-nickname" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="显示名称">
-    <label style="font-size:12px;color:var(--text2);">密码<span id="eu-pw-hint" style="color:var(--text2);">（留空不修改）</span></label>
+    <h3 id="edit-user-title" data-i18n="edit_user.title">编辑用户</h3>
+    <label id="eu-email-label" style="font-size:12px;color:var(--text2);" data-i18n="edit_user.email_label">邮箱</label>
+    <input id="eu-email" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="user@example.com" data-i18n-placeholder="edit_user.email_placeholder">
+    <label id="eu-nick-label" style="font-size:12px;color:var(--text2);" data-i18n="edit_user.nick_label">昵称</label>
+    <input id="eu-nickname" style="font-size:14px;padding:8px 12px;margin-bottom:8px;" placeholder="显示名称" data-i18n-placeholder="edit_user.nick_placeholder">
+    <label style="font-size:12px;color:var(--text2);" data-i18n="edit_user.password_label">密码<span id="eu-pw-hint" style="color:var(--text2);" data-i18n="admin.password_hint">（留空不修改）</span></label>
     <input id="eu-password" type="password" style="font-size:14px;padding:8px 12px;margin-bottom:8px;">
-    <label style="font-size:12px;color:var(--text2);">设备配额</label>
+    <label style="font-size:12px;color:var(--text2);" data-i18n="edit_user.quota_label">设备配额</label>
     <input id="eu-quota" type="number" min="1" style="font-size:14px;padding:8px 12px;margin-bottom:12px;width:80px;">
     <input type="hidden" id="eu-id">
     <div class="error hidden" id="eu-error" style="margin-bottom:8px;"></div>
     <div class="actions">
-      <button class="btn-cancel" onclick="document.getElementById('edit-user-modal').classList.add('hidden')">取消</button>
-      <button class="btn-confirm" onclick="saveEditUser()">保存</button>
+      <button class="btn-cancel" onclick="document.getElementById('edit-user-modal').classList.add('hidden')" data-i18n="edit_user.cancel_btn">取消</button>
+      <button class="btn-confirm" onclick="saveEditUser()" data-i18n="edit_user.save_btn">保存</button>
     </div>
   </div>
 </div>
