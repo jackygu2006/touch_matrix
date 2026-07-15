@@ -1,6 +1,6 @@
 {
-  "app.title": "小奈 Matrix",
-  "login.title": "小奈Matrix · 登录",
+  "app.title": "Touch Matrix",
+  "login.title": "Touch Matrix · 登录",
   "login.email_label": "邮箱",
   "login.password_label": "密码",
   "login.password_placeholder": "请输入密码",
@@ -136,7 +136,7 @@
   "control.send_text": "发送",
   "control.text_placeholder": "发送文字到手机...",
   "control.text_title": "将文字粘贴到手机当前输入框",
-  "page.title": "小奈Matrix · MVP",
+  "page.title": "Touch Matrix · MVP",
   "sidebar.bind_device": "+ 绑定设备",
   "status.refresh": "刷新",
   "dev_settings.title": "设备设置",
@@ -167,6 +167,6 @@
   "edit_user.quota_label": "设备配额",
   "edit_user.cancel_btn": "取消",
   "edit_user.save_btn": "保存",
-  "login.heading": "小奈Matrix",
+  "login.heading": "Touch Matrix",
   "task.history_title": "历史记录"
 }

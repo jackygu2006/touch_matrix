@@ -63,33 +63,40 @@ function renderDeviceList() {
       document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;line-height:1.8;">' + msg + '</div>';
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
+      window._hasActiveWarning = true;
     } else {
       var hasData = dev.permissions && Object.keys(dev.permissions).length > 0;
-
-      // Permission check: WebSocket online but incomplete permissions, show yellow warning (skip when data not ready)
       var missingPerms = hasData ? getMissingPerms(dev) : [];
-      var permWarnEl = document.getElementById('perm-warning');
+
+      // Always hide top-position warnings — everything goes to center placeholder
+      document.getElementById('perm-warning').style.display = 'none';
+      document.getElementById('screen-warning').style.display = 'none';
+
+      // Build center warning text if needed (permission or screen-off)
+      var centerMsg = '';
+      var centerColor = '';
       if (missingPerms.length > 0) {
-        permWarnEl.innerHTML = __('devices.missing_perms') + missingPerms.join(__('devices.missing_perms_join')) + __('devices.missing_perms_hint');
-        permWarnEl.style.display = 'block';
-      } else {
-        permWarnEl.style.display = 'none';
+        centerMsg = __('devices.missing_perms') + missingPerms.join(__('devices.missing_perms_join')) + __('devices.missing_perms_hint');
+        centerColor = 'var(--warn)';  // yellow/amber
+      }
+      if (hasData && dev.screen_on === false) {
+        if (centerMsg) centerMsg += '<br>';
+        centerMsg += __('devices.screen_off');
+        centerColor = centerColor || 'var(--info)';  // blue
       }
 
-      // If no frames yet, hide canvas to prevent showing stale frames from previous device
+      // Show placeholder (with warning text if any) and hide canvas when:
+      // - no frames yet (prevents stale frame from previous device), or
+      // - there are warnings to display
       var hasFrame = dev.last_frame && new Date(dev.last_frame).getTime() > 0;
-      if (!hasFrame) {
+      if (!hasFrame || centerMsg) {
+        if (centerMsg) {
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:' + centerColor + ';font-size:14px;text-align:center;line-height:1.8;">' + centerMsg + '</div>';
+        }
         document.getElementById('screen-placeholder').classList.remove('hidden');
         canvas.classList.add('hidden');
+        window._hasActiveWarning = true;
         return;
-      }
-
-      // Screen status check: skip when data not ready
-      var screenWarnEl = document.getElementById('screen-warning');
-      if (hasData && dev.screen_on === false) {
-        screenWarnEl.style.display = 'block';
-      } else {
-        screenWarnEl.style.display = 'none';
       }
 
       // Check if device has no data (5s no frame = may be stuck, 8s no message = may be offline)
@@ -99,15 +106,18 @@ function renderDeviceList() {
           document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">' + __('devices.offline_warning', Math.round(age)) + '</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
           canvas.classList.add('hidden');
+          window._hasActiveWarning = true;
           return;
         }
         if (age > 5) {
           document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">' + __('devices.no_screen') + '</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
           canvas.classList.add('hidden');
+          window._hasActiveWarning = true;
           return;
         }
       }
+      window._hasActiveWarning = false;
       document.getElementById('screen-placeholder').classList.add('hidden');
       canvas.classList.remove('hidden');
     }
@@ -136,6 +146,10 @@ function hasAllPerms(dev) {
 
 function selectDevice(id) {
   activeDeviceId = id;
+  // Clear canvas immediately to prevent showing stale frame from previous device
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  canvas.classList.add('hidden');
+  document.getElementById('screen-placeholder').classList.remove('hidden');
   // If in Grid mode, exit and switch to single device mode
   if (gridMode) toggleGrid();
   send({type: 'watch_one', device_id: id});

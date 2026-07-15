@@ -1,5 +1,5 @@
 #!/bin/bash
-# NanoFusion Matrix One-click Deploy
+# Touch Matrix One-click Deploy
 # Suggested: configure SSH passwordless login first: ssh-copy-id root@114.55.132.92
 #
 # Server config is read from .env on the server; no passwords are uploaded or hardcoded locally.
@@ -24,7 +24,7 @@ echo "=== 3. Upload Files ==="
 ssh "$SERVER" "mkdir -p $REMOTE_DIR/static"
 scp nftouch-server "$SERVER:$REMOTE_DIR/" || exit 1
 scp VERSION "$SERVER:$REMOTE_DIR/" || exit 1
-scp static/*.html static/*.css static/*.js "$SERVER:$REMOTE_DIR/static/" || exit 1
+scp -r static/*.html static/*.css static/*.js static/locales "$SERVER:$REMOTE_DIR/static/" || exit 1
 echo "Upload complete"
 
 echo ""

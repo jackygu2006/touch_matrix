@@ -1,6 +1,6 @@
 {
-  "app.title": "NanoFusion Matrix",
-  "login.title": "NanoFusion · Login",
+  "app.title": "Touch Matrix",
+  "login.title": "Touch Matrix · Login",
   "login.email_label": "Email",
   "login.password_label": "Password",
   "login.password_placeholder": "Please enter your password",
@@ -136,7 +136,7 @@
   "control.send_text": "Send",
   "control.text_placeholder": "Send text to phone...",
   "control.text_title": "Paste text into phone input field",
-  "page.title": "NanoFusion Matrix · MVP",
+  "page.title": "Touch Matrix · MVP",
   "sidebar.bind_device": "+ Bind Device",
   "status.refresh": "Refresh",
   "dev_settings.title": "Device Settings",
@@ -167,6 +167,6 @@
   "edit_user.quota_label": "Device Quota",
   "edit_user.cancel_btn": "Cancel",
   "edit_user.save_btn": "Save",
-  "login.heading": "NanoFusion",
+  "login.heading": "Touch Matrix",
   "task.history_title": "History"
 }

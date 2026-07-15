@@ -28,7 +28,7 @@ let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
     if (!resp.ok) { localStorage.removeItem('nftouch_token'); location.href = '/login.html'; return; }
     var data = await resp.json();
     if (data.role === 'admin') {
-      document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()">' + __('sidebar.user_management') + '</button>';
+      document.getElementById('sidebar-footer').innerHTML += '<button class="sidebar-btn" onclick="showAdminPanel()" data-i18n="sidebar.user_management">' + __('sidebar.user_management') + '</button>';
     }
     // Insert version + language switch below the admin button
     document.getElementById('sidebar-footer').innerHTML += '<div id="server-version" style="padding:8px 0 0 0;font-size:10px;color:var(--text2);text-align:center;display:flex;align-items:center;justify-content:center;gap:8px;">' +
@@ -157,8 +157,10 @@ function connect() {
           URL.revokeObjectURL(url);
         };
         img.src = url;
-        document.getElementById('screen-placeholder').classList.add('hidden');
-        canvas.classList.remove('hidden');
+        if (!window._hasActiveWarning) {
+          document.getElementById('screen-placeholder').classList.add('hidden');
+          canvas.classList.remove('hidden');
+        }
       }
       } // close pendingFrameHeader if
       pendingFrameHeader = null;
