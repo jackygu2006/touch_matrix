@@ -15,6 +15,19 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// bgCtx is the background context for non-timed operations.
+var bgCtx = context.Background()
+
+// writeTimeout is the maximum time to wait for a WebSocket write to complete.
+const writeTimeout = 10 * time.Second
+
+// wsWrite is a helper that writes to a WebSocket connection with a 10s timeout.
+func wsWrite(conn *websocket.Conn, typ websocket.MessageType, data []byte) error {
+	ctx, cancel := context.WithTimeout(bgCtx, writeTimeout)
+	defer cancel()
+	return conn.Write(ctx, typ, data)
+}
+
 // WebSocket Hub
 // ============================================================
 
@@ -156,7 +169,7 @@ func (h *Hub) sendToDevice(deviceID string, msg WSMessage) error {
 	if err != nil {
 		return fmt.Errorf("marshal error: %w", err)
 	}
-	return dc.conn.Write(bgCtx, websocket.MessageText, data)
+	return wsWrite(dc.conn, websocket.MessageText, data)
 }
 
 func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
@@ -180,8 +193,8 @@ func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
 		go func(dc *dashConn) {
 			dc.mu.Lock()
 			defer dc.mu.Unlock()
-			dc.conn.Write(bgCtx, websocket.MessageText, header)
-			dc.conn.Write(bgCtx, websocket.MessageBinary, frameData)
+			wsWrite(dc.conn, websocket.MessageText, header)
+			wsWrite(dc.conn, websocket.MessageBinary, frameData)
 		}(dc)
 	}
 }
@@ -196,7 +209,7 @@ func (h *Hub) broadcastToDash(msg WSMessage) {
 	defer h.mu.RUnlock()
 	for dc := range h.dash {
 		dc.mu.Lock()
-		dc.conn.Write(bgCtx, websocket.MessageText, data)
+		wsWrite(dc.conn, websocket.MessageText, data)
 		dc.mu.Unlock()
 	}
 }
@@ -250,7 +263,7 @@ func (h *Hub) broadcastDeviceList() {
 			continue
 		}
 		dc.mu.Lock()
-		dc.conn.Write(bgCtx, websocket.MessageText, msg)
+		wsWrite(dc.conn, websocket.MessageText, msg)
 		dc.mu.Unlock()
 	}
 }
@@ -277,7 +290,10 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	dc := &deviceConn{conn: c, screenOn: true}
 	var deviceID string
 
-	_, msgBytes, err := c.Read(bgCtx)
+	// 30s timeout for initial auth read
+	readCtx, readCancel := context.WithTimeout(bgCtx, 30*time.Second)
+	_, msgBytes, err := c.Read(readCtx)
+	readCancel()
 	if err != nil {
 		log.Printf("[ws/device] read auth error: %v", err)
 		return
@@ -286,7 +302,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	var authMsg WSMessage
 	if err := json.Unmarshal(msgBytes, &authMsg); err != nil || authMsg.Type != "auth" {
 		log.Printf("[ws/device] auth parse error: %v, type=%s", err, authMsg.Type)
-		c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid auth message"}))
+		wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid auth message"}))
 		return
 	}
 
@@ -309,7 +325,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 					dev = &Device{ID: authMsg.DeviceID, Name: authMsg.DeviceID, UserID: uid, TokenHash: tokenHash}
 					if err := upsertDevice(*dev); err != nil {
 						log.Printf("[ws/device] upsertDevice error for pending bind %s: %v", authMsg.DeviceID, err)
-						c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "server error"}))
+						wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "server error"}))
 						return
 					}
 					db.Exec("DELETE FROM device_codes WHERE device_id=?", authMsg.DeviceID)
@@ -318,7 +334,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if dev == nil {
-			c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid token"}))
+			wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid token"}))
 			log.Printf("[ws/device] auth failed: token not found")
 			return
 		}
@@ -343,11 +359,11 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := upsertDevice(*dev); err != nil {
 		log.Printf("[ws/device] upsertDevice error for %s: %v", deviceID, err)
-		c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "server error"}))
+		wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "server error"}))
 		return
 	}
 
-	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "auth_ok"}))
+	wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "auth_ok"}))
 
 	hub.registerDevice(deviceID, dc)
 	defer hub.unregisterDevice(deviceID, dc)
@@ -364,7 +380,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 				return
 			case <-ticker.C:
 				dc.mu.Lock()
-				err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "ping"}))
+				err := wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "ping"}))
 				dc.mu.Unlock()
 				if err != nil {
 					return
@@ -397,7 +413,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 				case "pong":
 				case "device_ping":
 					// Device actively probes latency, echo the timestamp back
-					c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{
+					wsWrite(c, websocket.MessageText, mustJSON(WSMessage{
 						Type: "device_pong", Text: msg.Text,
 					}))
 				case "unbind":
@@ -490,8 +506,18 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 	hub.registerDash(dc)
 	defer hub.unregisterDash(dc)
 
+	// Send initial device_list with in-memory permissions merged
 	devices, _ := getDevices()
-	c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
+	hub.mu.RLock()
+	for i := range devices {
+		if devConn, ok := hub.devices[devices[i].ID]; ok {
+			devices[i].Permissions = devConn.permissions
+			devices[i].ScreenOn = devConn.screenOn
+			devices[i].LastFrame = devConn.lastFrame
+		}
+	}
+	hub.mu.RUnlock()
+	wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
 
 	// Periodically sync device status (10s), correct missed updates when changes detected
 	syncDone := make(chan struct{})
@@ -514,7 +540,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 				dc.lastVersion = curVersion
 				dc.mu.Lock()
 				devs, _ := getDevices()
-				err := c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devs)}))
+				err := wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devs)}))
 				dc.mu.Unlock()
 				if err != nil {
 					return
@@ -553,7 +579,7 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 			}
 			if msg.DeviceID != "" {
 				if err := hub.sendToDevice(msg.DeviceID, msg); err != nil {
-					c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{
+					wsWrite(c, websocket.MessageText, mustJSON(WSMessage{
 						Type: "error", Reason: fmt.Sprintf("send command to device failed: %s", err.Error()),
 					}))
 					log.Printf("[ws/dash] send command to device %s failed: %v", msg.DeviceID, err)
@@ -563,12 +589,16 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 			}
 		case "refresh":
 			devices, _ := getDevices()
-			c.Write(bgCtx, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
+			wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
 		}
 	}
 }
 
 func (h *Hub) Start() {
+	// On boot: mark all online devices as offline, since in-memory state is fresh
+	if _, err := db.Exec("UPDATE devices SET status='offline' WHERE status='online'"); err != nil {
+		log.Printf("[hub] failed to reset device status on startup: %v", err)
+	}
 	go h.watchdog()
 }
 

@@ -21,7 +21,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-var bgCtx = context.Background()
 var db *sql.DB
 
 // bumpVersion increments the version: format 2026.7.13.1 (year.month.day.sequence), auto-bumped on each start
