@@ -562,6 +562,71 @@ func handlePairingCode(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func handleDeviceUnbind(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID string `json:"device_id"`
+		Token    string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+	if req.DeviceID == "" || req.Token == "" {
+		writeJSON(w, 400, map[string]string{"error": "device_id and token are required"})
+		return
+	}
+
+	dev, err := verifyDeviceToken(req.DeviceID, req.Token)
+	if err != nil {
+		log.Printf("[device] verify token for unbind error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if dev == nil {
+		writeJSON(w, 401, map[string]string{"error": "invalid device credentials"})
+		return
+	}
+
+	hub.markDeviceUnbound(req.DeviceID, "device api unbind")
+	writeJSON(w, 200, map[string]string{"status": "unbound"})
+}
+
+func handleDeviceValidateToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID string `json:"device_id"`
+		Token    string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+	if req.DeviceID == "" || req.Token == "" {
+		writeJSON(w, 400, map[string]string{"error": "device_id and token are required"})
+		return
+	}
+
+	dev, err := verifyDeviceToken(req.DeviceID, req.Token)
+	if err != nil {
+		log.Printf("[device] validate token error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if dev == nil {
+		matchedPendingBind, err := verifyPendingBindToken(req.DeviceID, req.Token)
+		if err != nil {
+			log.Printf("[device] validate pending token error: %v", err)
+			writeJSON(w, 500, map[string]string{"error": "server error"})
+			return
+		}
+		if !matchedPendingBind {
+			writeJSON(w, 401, map[string]string{"error": "invalid device credentials"})
+			return
+		}
+	}
+
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	if err := db.Ping(); err != nil {
 		writeJSON(w, 503, map[string]string{"status": "unhealthy", "error": err.Error()})
@@ -789,6 +854,8 @@ func main() {
 	mux.HandleFunc("POST /api/devices/{id}/task", jwt(handlePostTask))
 	mux.HandleFunc("DELETE /api/devices/{id}/tasks/{tid}", jwt(handleDeleteTask))
 	mux.HandleFunc("POST /api/pairing-code", handlePairingCode)
+	mux.HandleFunc("POST /api/device/unbind", handleDeviceUnbind)
+	mux.HandleFunc("POST /api/device/validate-token", handleDeviceValidateToken)
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

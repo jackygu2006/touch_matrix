@@ -324,6 +324,42 @@ func verifyDeviceToken(deviceID, token string) (*Device, error) {
 	return &d, nil
 }
 
+func verifyPendingBindToken(deviceID, token string) (bool, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	for attempt := 0; attempt < dbReadRetryCount; attempt++ {
+		rows, err = db.Query(`
+			SELECT token_hash
+			FROM device_codes
+			WHERE device_id=? AND token_hash IS NOT NULL AND expires_at >= datetime('now')
+		`, deviceID)
+		if err == nil {
+			break
+		}
+		if !isLockError(err) || attempt == dbReadRetryCount-1 {
+			return false, err
+		}
+		time.Sleep(dbReadRetryDelay)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var tokenHash string
+		if err := rows.Scan(&tokenHash); err != nil {
+			return false, err
+		}
+		if tokenHash != "" && bcrypt.CompareHashAndPassword([]byte(tokenHash), []byte(token)) == nil {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 func getUserByID(id string) (*User, error) {
 	var u User
 	err := db.QueryRow("SELECT id, email, password, nickname, role, status, max_devices, created_at FROM users WHERE id=?", id).

@@ -450,6 +450,162 @@ func TestDeleteDeviceDropsOnlineConnection(t *testing.T) {
 	}
 }
 
+func TestDeviceUnbindEndpointMarksDeviceUnbound(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "unbind-endpoint@nftouch.local", "test123456", "user")
+	token := "device-unbind-token"
+	d := Device{
+		ID:        "dev-unbind-api",
+		Name:      "dev-unbind-api",
+		UserID:    u.ID,
+		TokenHash: hashToken(token),
+		Status:    "online",
+	}
+	if err := upsertDevice(d); err != nil {
+		t.Fatalf("upsertDevice: %v", err)
+	}
+	addDeviceToHub("dev-unbind-api", u.ID)
+
+	r := newJSONRequest("POST", "/api/device/unbind", map[string]string{
+		"device_id": "dev-unbind-api",
+		"token":     token,
+	})
+	w := httptest.NewRecorder()
+	handleDeviceUnbind(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	dev, err := getDevice("dev-unbind-api")
+	if err != nil {
+		t.Fatalf("getDevice: %v", err)
+	}
+	if dev == nil || dev.Status != "unbound" {
+		t.Fatalf("expected status unbound, got %+v", dev)
+	}
+	hub.mu.RLock()
+	_, connected := hub.devices["dev-unbind-api"]
+	hub.mu.RUnlock()
+	if connected {
+		t.Fatal("expected device connection removed after unbind")
+	}
+}
+
+func TestDeviceUnbindEndpointRejectsInvalidToken(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "unbind-invalid@nftouch.local", "test123456", "user")
+	d := Device{
+		ID:        "dev-unbind-invalid",
+		Name:      "dev-unbind-invalid",
+		UserID:    u.ID,
+		TokenHash: hashToken("correct-token"),
+		Status:    "online",
+	}
+	if err := upsertDevice(d); err != nil {
+		t.Fatalf("upsertDevice: %v", err)
+	}
+
+	r := newJSONRequest("POST", "/api/device/unbind", map[string]string{
+		"device_id": "dev-unbind-invalid",
+		"token":     "wrong-token",
+	})
+	w := httptest.NewRecorder()
+	handleDeviceUnbind(w, r)
+
+	if w.Code != 401 {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeviceValidateTokenEndpointAcceptsValidToken(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "validate-token@nftouch.local", "test123456", "user")
+	token := "device-validate-token"
+	d := Device{
+		ID:        "dev-validate-token",
+		Name:      "dev-validate-token",
+		UserID:    u.ID,
+		TokenHash: hashToken(token),
+		Status:    "offline",
+	}
+	if err := upsertDevice(d); err != nil {
+		t.Fatalf("upsertDevice: %v", err)
+	}
+
+	r := newJSONRequest("POST", "/api/device/validate-token", map[string]string{
+		"device_id": "dev-validate-token",
+		"token":     token,
+	})
+	w := httptest.NewRecorder()
+	handleDeviceValidateToken(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeviceValidateTokenEndpointAcceptsPendingBindToken(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "validate-pending@nftouch.local", "test123456", "user")
+	token := "device-pending-token"
+	if _, err := db.Exec(
+		`INSERT INTO device_codes (code, device_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`,
+		"654321",
+		"dev-validate-pending",
+		u.ID,
+		hashToken(token),
+	); err != nil {
+		t.Fatalf("insert device_code: %v", err)
+	}
+
+	r := newJSONRequest("POST", "/api/device/validate-token", map[string]string{
+		"device_id": "dev-validate-pending",
+		"token":     token,
+	})
+	w := httptest.NewRecorder()
+	handleDeviceValidateToken(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeviceValidateTokenEndpointRejectsInvalidToken(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "validate-invalid@nftouch.local", "test123456", "user")
+	d := Device{
+		ID:        "dev-validate-invalid",
+		Name:      "dev-validate-invalid",
+		UserID:    u.ID,
+		TokenHash: hashToken("correct-token"),
+		Status:    "offline",
+	}
+	if err := upsertDevice(d); err != nil {
+		t.Fatalf("upsertDevice: %v", err)
+	}
+
+	r := newJSONRequest("POST", "/api/device/validate-token", map[string]string{
+		"device_id": "dev-validate-invalid",
+		"token":     "wrong-token",
+	})
+	w := httptest.NewRecorder()
+	handleDeviceValidateToken(w, r)
+
+	if w.Code != 401 {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestDeviceRoutesRequireAuth(t *testing.T) {
 	setupTest(t)
 	defer teardownTest()

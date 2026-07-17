@@ -340,6 +340,25 @@ func (h *Hub) dropDevice(deviceID, reason string) {
 	log.Printf("[hub] device %s dropped: %s", deviceID, reason)
 }
 
+func (h *Hub) markDeviceUnbound(deviceID, reason string) {
+	if _, err := db.Exec("UPDATE devices SET status='unbound' WHERE id=?", deviceID); err != nil {
+		log.Printf("[hub] mark device %s unbound error: %v", deviceID, err)
+		return
+	}
+
+	h.mu.RLock()
+	_, connected := h.devices[deviceID]
+	h.mu.RUnlock()
+	if connected {
+		h.dropDevice(deviceID, reason)
+		return
+	}
+
+	h.bumpDeviceVersion()
+	h.broadcastDeviceList()
+	log.Printf("[hub] device %s marked unbound: %s", deviceID, reason)
+}
+
 func (h *Hub) dropDevicesByUser(userID, reason string) {
 	h.mu.RLock()
 	var deviceIDs []string
@@ -723,8 +742,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 				case "unbind":
-					db.Exec("UPDATE devices SET status='unbound' WHERE id=?", deviceID)
-					go hub.dropDevice(deviceID, "device unbound")
+					hub.markDeviceUnbound(deviceID, "device unbound")
 				case "task_status":
 					status := "running"
 					if strings.Contains(msg.Text, "完成任务") || strings.Contains(msg.Text, "任务完成") || strings.Contains(msg.Text, "✅") {
