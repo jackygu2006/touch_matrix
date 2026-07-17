@@ -16,6 +16,7 @@ let devW = 1080, devH = 1920;
 let gridMode = false;
 let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 let mobileFullscreen = false;
+let mobileFabExpanded = false;
 
 function isMobileViewport() {
   return window.matchMedia('(max-width: 820px)').matches;
@@ -41,9 +42,30 @@ function resizeMainCanvas() {
   canvas.style.height = Math.max(2, Math.floor(devH * scale)) + 'px';
 }
 
+function resetMobileFabPosition() {
+  var fab = document.getElementById('mobile-fab');
+  if (!fab) return;
+  fab.style.left = '';
+  fab.style.top = '18px';
+  fab.style.right = '18px';
+  fab.style.bottom = '';
+}
+
+function updateMobileFab() {
+  var fab = document.getElementById('mobile-fab');
+  var actions = document.getElementById('mobile-fab-actions');
+  var toggle = document.getElementById('mobile-fab-toggle');
+  if (!fab || !actions || !toggle) return;
+  var show = mobileFullscreen && isMobileViewport();
+  fab.classList.toggle('hidden', !show);
+  actions.classList.toggle('hidden', !show || !mobileFabExpanded);
+  toggle.textContent = mobileFabExpanded ? 'X' : 'O';
+  toggle.classList.toggle('is-expanded', mobileFabExpanded);
+  toggle.classList.toggle('is-collapsed', !mobileFabExpanded);
+}
+
 function updateMobileFullscreenButtons() {
   var enterBtn = document.getElementById('fullscreen-toggle');
-  var exitBtn = document.getElementById('mobile-fullscreen-exit');
   var canShow = isMobileViewport();
   if (enterBtn) {
     enterBtn.style.display = canShow ? 'inline-flex' : 'none';
@@ -52,11 +74,109 @@ function updateMobileFullscreenButtons() {
     enterBtn.style.borderColor = mobileFullscreen ? 'var(--accent)' : 'var(--border)';
     enterBtn.style.color = mobileFullscreen ? 'var(--accent)' : 'var(--text2)';
   }
-  if (exitBtn) {
-    exitBtn.textContent = __('control.fullscreen_exit_short');
-    exitBtn.title = __('control.fullscreen_exit_title');
-    exitBtn.classList.toggle('hidden', !mobileFullscreen);
+  updateMobileFab();
+}
+
+function toggleMobileFabActions(forceExpanded) {
+  if (typeof forceExpanded === 'boolean') {
+    mobileFabExpanded = forceExpanded;
+  } else {
+    mobileFabExpanded = !mobileFabExpanded;
   }
+  updateMobileFab();
+}
+
+function sendFullscreenQuickAction(action) {
+  if (action === 'restore') {
+    setMobileFullscreen(false);
+    return;
+  }
+  if (action === 'home' || action === 'back') {
+    sendKey(action);
+    return;
+  }
+  if (action === 'up' || action === 'down' || action === 'left' || action === 'right' || action === 'notify') {
+    sendGesture(action);
+  }
+}
+
+function initMobileFab() {
+  var fab = document.getElementById('mobile-fab');
+  var toggle = document.getElementById('mobile-fab-toggle');
+  var container = document.getElementById('screen-canvas-area');
+  if (!fab || !toggle || !container || fab.dataset.bound === '1') return;
+  fab.dataset.bound = '1';
+
+  var drag = null;
+
+  function getPoint(event) {
+    var source = event.touches && event.touches[0] ? event.touches[0] : event;
+    return { x: source.clientX, y: source.clientY };
+  }
+
+  function clampPosition(left, top) {
+    var bounds = container.getBoundingClientRect();
+    var maxLeft = Math.max(8, bounds.width - fab.offsetWidth - 8);
+    var maxTop = Math.max(8, bounds.height - fab.offsetHeight - 8);
+    return {
+      left: Math.min(Math.max(8, left), maxLeft),
+      top: Math.min(Math.max(8, top), maxTop)
+    };
+  }
+
+  function handleMove(event) {
+    if (!drag) return;
+    var point = getPoint(event);
+    var nextLeft = drag.startLeft + (point.x - drag.originX);
+    var nextTop = drag.startTop + (point.y - drag.originY);
+    var pos = clampPosition(nextLeft, nextTop);
+    fab.style.left = pos.left + 'px';
+    fab.style.top = pos.top + 'px';
+    fab.style.right = 'auto';
+    fab.style.bottom = 'auto';
+    if (Math.abs(point.x - drag.originX) > 6 || Math.abs(point.y - drag.originY) > 6) {
+      drag.moved = true;
+    }
+    event.preventDefault();
+  }
+
+  function handleEnd(event) {
+    if (!drag) return;
+    var moved = drag.moved;
+    drag = null;
+    document.removeEventListener('mousemove', handleMove);
+    document.removeEventListener('mouseup', handleEnd);
+    document.removeEventListener('touchmove', handleMove);
+    document.removeEventListener('touchend', handleEnd);
+    document.removeEventListener('touchcancel', handleEnd);
+    if (!moved) {
+      toggleMobileFabActions();
+      if (event) event.preventDefault();
+    }
+  }
+
+  function handleStart(event) {
+    if (!mobileFullscreen || !isMobileViewport()) return;
+    var point = getPoint(event);
+    var bounds = container.getBoundingClientRect();
+    var rect = fab.getBoundingClientRect();
+    drag = {
+      originX: point.x,
+      originY: point.y,
+      startLeft: rect.left - bounds.left,
+      startTop: rect.top - bounds.top,
+      moved: false
+    };
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+    document.addEventListener('touchmove', handleMove, { passive: false });
+    document.addEventListener('touchend', handleEnd, { passive: false });
+    document.addEventListener('touchcancel', handleEnd, { passive: false });
+    event.preventDefault();
+  }
+
+  toggle.addEventListener('mousedown', handleStart);
+  toggle.addEventListener('touchstart', handleStart, { passive: false });
 }
 
 function setMobileFullscreen(next) {
@@ -66,6 +186,7 @@ function setMobileFullscreen(next) {
   }
   if (!isMobileViewport()) {
     mobileFullscreen = false;
+    mobileFabExpanded = false;
     document.body.classList.remove('mobile-single-fullscreen');
     updateMobileFullscreenButtons();
     resizeMainCanvas();
@@ -75,7 +196,9 @@ function setMobileFullscreen(next) {
     toggleGrid();
   }
   mobileFullscreen = !!next;
+  mobileFabExpanded = false;
   document.body.classList.toggle('mobile-single-fullscreen', mobileFullscreen);
+  if (mobileFullscreen) resetMobileFabPosition();
   updateMobileFullscreenButtons();
   requestAnimationFrame(function() {
     requestAnimationFrame(resizeMainCanvas);
@@ -137,6 +260,7 @@ function getFrameBlob(arrayBuffer, frameHeader) {
     var sw = document.getElementById('lang-switch');
     if (sw) sw.textContent = lang === 'zh' ? 'ZH' : 'EN';
   })();
+  initMobileFab();
   updateMobileFullscreenButtons();
 
   // connect() is called at end of ui.js
@@ -280,8 +404,12 @@ function updateStatus(_status, text) {
 }
 
 window.addEventListener('resize', function() {
+  if (typeof window.syncResizablePaneWidths === 'function') {
+    window.syncResizablePaneWidths();
+  }
   if (!isMobileViewport() && mobileFullscreen) {
     mobileFullscreen = false;
+    mobileFabExpanded = false;
     document.body.classList.remove('mobile-single-fullscreen');
   }
   updateMobileFullscreenButtons();
@@ -295,18 +423,38 @@ window.addEventListener('resize', function() {
   var dragging = null;
   var startX = 0;
   var startW = 0;
+  var paneConfigs = [];
+
+  function syncResizablePaneWidths() {
+    paneConfigs.forEach(function(cfg) {
+      if (!cfg.target) return;
+      if (isMobileViewport()) {
+        cfg.target.style.width = '';
+        return;
+      }
+      var saved = localStorage.getItem(cfg.key);
+      if (!saved) {
+        cfg.target.style.width = '';
+        return;
+      }
+      var w = parseInt(saved, 10);
+      if (w >= cfg.minW && w <= cfg.maxW) {
+        cfg.target.style.width = w + 'px';
+      } else {
+        cfg.target.style.width = '';
+      }
+    });
+  }
+
+  window.syncResizablePaneWidths = syncResizablePaneWidths;
 
   function initHandle(id, targetId, rightSide, minW, maxW, storageKey) {
     var handle = document.getElementById(id);
     var target = document.getElementById(targetId);
     if (!handle || !target) return;
+    paneConfigs.push({ target: target, minW: minW, maxW: maxW, key: storageKey });
 
-    // Restore last saved size
-    var saved = localStorage.getItem(storageKey);
-    if (saved) {
-      var w = parseInt(saved);
-      if (w >= minW && w <= maxW) target.style.width = w + 'px';
-    }
+    syncResizablePaneWidths();
 
     handle.addEventListener('mousedown', function(e) {
       e.preventDefault();
@@ -341,4 +489,6 @@ window.addEventListener('resize', function() {
 
   // Handle 2: screen-canvas-area(left) vs task-panel(right), drag to resize task-panel width
   initHandle('resize-task', 'task-panel', true, 200, 600, 'nftouch_task_w');
+
+  syncResizablePaneWidths();
 })();

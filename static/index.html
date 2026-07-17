@@ -43,7 +43,35 @@
         <canvas id="screen-canvas" class="hidden"></canvas>
         <div id="perm-warning" style="display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.15);border:1px solid var(--warn);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--warn);text-align:center;z-index:10;white-space:nowrap;"></div>
         <div id="screen-warning" style="display:none;position:absolute;top:38px;left:50%;transform:translateX(-50%);background:rgba(96,165,250,.12);border:1px solid var(--info);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--info);text-align:center;z-index:10;white-space:nowrap;" data-i18n="screen_warning.off">📱 设备屏幕已关闭</div>
-        <button id="mobile-fullscreen-exit" class="hidden" onclick="toggleMobileFullscreen()" title="">复原</button>
+        <div id="mobile-fab" class="hidden">
+          <div id="mobile-fab-actions" class="hidden">
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('home')" title="" aria-label="Home" data-i18n-title="control.home">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13V10.5"/><path d="M9.5 20v-5h5v5"/></svg>
+            </button>
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('back')" title="" aria-label="Back" data-i18n-title="control.back">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6 4 12l6 6"/><path d="M4 12h11a5 5 0 0 1 0 10"/></svg>
+            </button>
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('up')" title="" aria-label="Swipe Up" data-i18n-title="control.swipe_up">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V6"/><path d="m6 12 6-6 6 6"/></svg>
+            </button>
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('down')" title="" aria-label="Swipe Down" data-i18n-title="control.swipe_down">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v14"/><path d="m6 12 6 6 6-6"/></svg>
+            </button>
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('left')" title="" aria-label="Swipe Left" data-i18n-title="control.swipe_left">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12H6"/><path d="m12 6-6 6 6 6"/></svg>
+            </button>
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('right')" title="" aria-label="Swipe Right" data-i18n-title="control.swipe_right">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h14"/><path d="m12 6 6 6-6 6"/></svg>
+            </button>
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('notify')" title="" aria-label="Notifications" data-i18n-title="control.notify">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 4 2 5 2 5H4s2-1 2-5"/><path d="M10 18a2 2 0 0 0 4 0"/></svg>
+            </button>
+            <button class="mobile-fab-action" type="button" onclick="sendFullscreenQuickAction('restore')" title="" aria-label="Restore" data-i18n-title="control.fullscreen_exit_title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4"/><path d="M15 3h4a2 2 0 0 1 2 2v4"/><path d="M9 21H5a2 2 0 0 1-2-2v-4"/><path d="M15 21h4a2 2 0 0 0 2-2v-4"/></svg>
+            </button>
+          </div>
+          <button id="mobile-fab-toggle" type="button" title="" data-i18n-title="control.fab_toggle_title">控</button>
+        </div>
       </div>
       <div class="resize-handle resize-handle-v" id="resize-task"></div>
       <div id="task-panel">
