@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestGetDevicesEmpty(t *testing.T) {
@@ -85,6 +86,48 @@ func TestGetDevicesUnboundVisible(t *testing.T) {
 	}
 }
 
+func TestGetDevicesMergesRuntimeState(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "runtime-list@nftouch.local", "test123456", "user")
+	createTestDeviceInDB(t, "dev-runtime-list", u.ID)
+	token, _ := generateJWT(u)
+
+	frameAt := time.Now().Add(-3 * time.Second).UTC().Truncate(time.Second)
+	msgAt := time.Now().UTC().Truncate(time.Second)
+	hub.mu.Lock()
+	hub.devices["dev-runtime-list"] = &deviceConn{
+		deviceID:    "dev-runtime-list",
+		userID:      u.ID,
+		lastFrame:   frameAt,
+		lastMessage: msgAt,
+		screenOn:    true,
+		permissions: map[string]bool{"accessibility": true, "overlay": true},
+	}
+	hub.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "/api/devices", nil)
+	setAuth(r, token)
+	w := httptest.NewRecorder()
+	handleGetDevices(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var devices []Device
+	json.NewDecoder(w.Body).Decode(&devices)
+	if len(devices) != 1 {
+		t.Fatalf("expected 1 device, got %d", len(devices))
+	}
+	if !devices[0].ScreenOn || !devices[0].Permissions["accessibility"] {
+		t.Fatalf("expected merged runtime fields, got %+v", devices[0])
+	}
+	if !devices[0].LastFrame.Equal(frameAt) || !devices[0].LastMessage.Equal(msgAt) {
+		t.Fatalf("expected merged timestamps, got lastFrame=%v lastMessage=%v", devices[0].LastFrame, devices[0].LastMessage)
+	}
+}
+
 func TestGetSingleDevice(t *testing.T) {
 	setupTest(t)
 	defer teardownTest()
@@ -107,6 +150,110 @@ func TestGetSingleDevice(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&dev)
 	if dev.ID != "dev-001" {
 		t.Fatalf("expected dev-001, got %s", dev.ID)
+	}
+}
+
+func TestGetSingleDeviceMergesRuntimeState(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "single-runtime@nftouch.local", "test123456", "user")
+	createTestDeviceInDB(t, "dev-single-runtime", u.ID)
+	token, _ := generateJWT(u)
+
+	hub.mu.Lock()
+	hub.devices["dev-single-runtime"] = &deviceConn{
+		deviceID:    "dev-single-runtime",
+		userID:      u.ID,
+		screenOn:    true,
+		permissions: map[string]bool{"notification": true},
+	}
+	hub.mu.Unlock()
+
+	r := httptest.NewRequest("GET", "/api/devices/dev-single-runtime", nil)
+	setAuth(r, token)
+	setPathValue(r, "id", "dev-single-runtime")
+	w := httptest.NewRecorder()
+	handleGetDevice(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var dev Device
+	json.NewDecoder(w.Body).Decode(&dev)
+	if !dev.ScreenOn || !dev.Permissions["notification"] {
+		t.Fatalf("expected merged runtime fields, got %+v", dev)
+	}
+}
+
+func TestGetSingleDeviceForbidden(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	owner := createTestUser(t, "owner@nftouch.local", "test123456", "user")
+	viewer := createTestUser(t, "viewer@nftouch.local", "test123456", "user")
+	createTestDeviceInDB(t, "dev-owned", owner.ID)
+	token, _ := generateJWT(viewer)
+
+	r := httptest.NewRequest("GET", "/api/devices/dev-owned", nil)
+	setAuth(r, token)
+	setPathValue(r, "id", "dev-owned")
+	w := httptest.NewRecorder()
+	handleGetDevice(w, r)
+
+	if w.Code != 403 {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminCannotAccessOtherUsersDevice(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	owner := createTestUser(t, "owner-admin-block@nftouch.local", "test123456", "user")
+	admin := createTestUser(t, "admin-block@nftouch.local", "test123456", "admin")
+	createTestDeviceInDB(t, "dev-admin-block", owner.ID)
+	token, _ := generateJWT(admin)
+
+	r := httptest.NewRequest("GET", "/api/devices/dev-admin-block", nil)
+	setAuth(r, token)
+	setPathValue(r, "id", "dev-admin-block")
+	w := httptest.NewRecorder()
+	handleGetDevice(w, r)
+
+	if w.Code != 403 {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAdminListDoesNotIncludeOtherUsersDevices(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	owner := createTestUser(t, "owner-list@nftouch.local", "test123456", "user")
+	admin := createTestUser(t, "admin-list@nftouch.local", "test123456", "admin")
+	createTestDeviceInDB(t, "dev-owner-only", owner.ID)
+	createTestDeviceInDB(t, "dev-admin-own", admin.ID)
+	createTestDeviceInDB(t, "dev-unbound", "")
+	token, _ := generateJWT(admin)
+
+	r := httptest.NewRequest("GET", "/api/devices", nil)
+	setAuth(r, token)
+	w := httptest.NewRecorder()
+	handleGetDevices(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var devices []Device
+	json.NewDecoder(w.Body).Decode(&devices)
+	if len(devices) != 2 {
+		t.Fatalf("expected admin to see own + unbound devices only, got %d", len(devices))
+	}
+	for _, d := range devices {
+		if d.ID == "dev-owner-only" {
+			t.Fatalf("admin should not see other users' device: %+v", devices)
+		}
 	}
 }
 
@@ -191,6 +338,48 @@ func TestPostTaskDeviceNotConnected(t *testing.T) {
 	}
 }
 
+func TestPostTaskForbidden(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	owner := createTestUser(t, "task-owner@nftouch.local", "test123456", "user")
+	viewer := createTestUser(t, "task-viewer@nftouch.local", "test123456", "user")
+	createTestDeviceInDB(t, "dev-locked", owner.ID)
+	token, _ := generateJWT(viewer)
+
+	r := newJSONRequest("POST", "/api/devices/dev-locked/task", map[string]string{
+		"prompt": "test task",
+	})
+	setAuth(r, token)
+	setPathValue(r, "id", "dev-locked")
+	w := httptest.NewRecorder()
+	handlePostTask(w, r)
+
+	if w.Code != 403 {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetTasksForbidden(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	owner := createTestUser(t, "tasks-owner@nftouch.local", "test123456", "user")
+	viewer := createTestUser(t, "tasks-viewer@nftouch.local", "test123456", "user")
+	createTestDeviceInDB(t, "dev-tasks", owner.ID)
+	token, _ := generateJWT(viewer)
+
+	r := httptest.NewRequest("GET", "/api/devices/dev-tasks/tasks", nil)
+	setAuth(r, token)
+	setPathValue(r, "id", "dev-tasks")
+	w := httptest.NewRecorder()
+	handleGetTasks(w, r)
+
+	if w.Code != 403 {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestDeleteDevice(t *testing.T) {
 	setupTest(t)
 	defer teardownTest()
@@ -212,6 +401,52 @@ func TestDeleteDevice(t *testing.T) {
 	dev, _ := getDevice("dev-del")
 	if dev != nil {
 		t.Fatal("device should be deleted but still exists")
+	}
+}
+
+func TestDeleteDeviceForbidden(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	owner := createTestUser(t, "del-owner@nftouch.local", "test123456", "user")
+	viewer := createTestUser(t, "del-viewer@nftouch.local", "test123456", "user")
+	createTestDeviceInDB(t, "dev-denied", owner.ID)
+	token, _ := generateJWT(viewer)
+
+	r := httptest.NewRequest("DELETE", "/api/devices/dev-denied", nil)
+	setAuth(r, token)
+	setPathValue(r, "id", "dev-denied")
+	w := httptest.NewRecorder()
+	handleDeleteDevice(w, r)
+
+	if w.Code != 403 {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteDeviceDropsOnlineConnection(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "drop@nftouch.local", "test123456", "user")
+	createTestDeviceInDB(t, "dev-drop", u.ID)
+	addDeviceToHub("dev-drop", u.ID)
+	token, _ := generateJWT(u)
+
+	r := httptest.NewRequest("DELETE", "/api/devices/dev-drop", nil)
+	setAuth(r, token)
+	setPathValue(r, "id", "dev-drop")
+	w := httptest.NewRecorder()
+	handleDeleteDevice(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, ok := hub.devices["dev-drop"]; ok {
+		t.Fatal("device should be removed from hub after delete")
+	}
+	if err := hub.sendToDevice("dev-drop", WSMessage{Type: "cmd_task", Prompt: "x"}); err == nil {
+		t.Fatal("sendToDevice should fail after device delete cleanup")
 	}
 }
 

@@ -81,9 +81,10 @@ func createTestDeviceInDB(t *testing.T, deviceID, userID string) {
 	}
 }
 
-func addDeviceToHub(deviceID string) {
+func addDeviceToHub(deviceID, userID string) {
 	hub.mu.Lock()
-	hub.devices[deviceID] = &deviceConn{deviceID: deviceID, lastFrame: time.Now()}
+	now := time.Now()
+	hub.devices[deviceID] = &deviceConn{deviceID: deviceID, userID: userID, lastFrame: now, lastMessage: now}
 	hub.mu.Unlock()
 }
 

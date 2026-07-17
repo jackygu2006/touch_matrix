@@ -21,11 +21,40 @@ var bgCtx = context.Background()
 // writeTimeout is the maximum time to wait for a WebSocket write to complete.
 const writeTimeout = 10 * time.Second
 
+const (
+	deviceReadTimeout     = 15 * time.Second
+	deviceWatchdogTimeout = 20 * time.Second
+	deviceListCacheTTL    = 30 * time.Second
+)
+
 // wsWrite is a helper that writes to a WebSocket connection with a 10s timeout.
 func wsWrite(conn *websocket.Conn, typ websocket.MessageType, data []byte) error {
 	ctx, cancel := context.WithTimeout(bgCtx, writeTimeout)
 	defer cancel()
 	return conn.Write(ctx, typ, data)
+}
+
+func cloneDeviceSnapshot(d Device) Device {
+	cloned := d
+	if d.LastSeen != nil {
+		lastSeen := *d.LastSeen
+		cloned.LastSeen = &lastSeen
+	}
+	if d.Permissions != nil {
+		cloned.Permissions = make(map[string]bool, len(d.Permissions))
+		for k, v := range d.Permissions {
+			cloned.Permissions[k] = v
+		}
+	}
+	return cloned
+}
+
+func cloneDeviceSnapshots(devices []Device) []Device {
+	cloned := make([]Device, len(devices))
+	for i, d := range devices {
+		cloned[i] = cloneDeviceSnapshot(d)
+	}
+	return cloned
 }
 
 // WebSocket Hub
@@ -49,6 +78,7 @@ func wsWrite(conn *websocket.Conn, typ websocket.MessageType, data []byte) error
 type WSMessage struct {
 	Type     string          `json:"type"`
 	DeviceID string          `json:"device_id,omitempty"`
+	Mime     string          `json:"mime,omitempty"`
 	X        int             `json:"x,omitempty"`
 	Y        int             `json:"y,omitempty"`
 	X1       int             `json:"x1,omitempty"`
@@ -71,10 +101,22 @@ type WSMessage struct {
 type deviceConn struct {
 	conn        *websocket.Conn
 	deviceID    string
+	userID      string
+	lastMessage time.Time
 	lastFrame   time.Time
 	permissions map[string]bool
 	screenOn    bool
 	mu          sync.Mutex
+}
+
+type dashTextMessage struct {
+	typ  websocket.MessageType
+	data []byte
+}
+
+type dashFrameMessage struct {
+	header []byte
+	data   []byte
 }
 
 type dashConn struct {
@@ -82,8 +124,13 @@ type dashConn struct {
 	deviceID    string
 	watchAll    bool
 	userID      string
+	role        string
 	lastVersion int64
-	mu          sync.Mutex
+	stateMu     sync.RWMutex
+	textCh      chan dashTextMessage
+	frameCh     chan dashFrameMessage
+	done        chan struct{}
+	closeOnce   sync.Once
 }
 
 type Hub struct {
@@ -99,6 +146,132 @@ type Hub struct {
 var hub = &Hub{
 	devices: make(map[string]*deviceConn),
 	dash:    make(map[*dashConn]bool),
+}
+
+func newDashConn(conn *websocket.Conn) *dashConn {
+	return &dashConn{
+		conn:    conn,
+		textCh:  make(chan dashTextMessage, 32),
+		frameCh: make(chan dashFrameMessage, 1),
+		done:    make(chan struct{}),
+	}
+}
+
+func (dc *dashConn) runWriter() {
+	for {
+		select {
+		case <-dc.done:
+			return
+		case msg := <-dc.textCh:
+			if err := wsWrite(dc.conn, msg.typ, msg.data); err != nil {
+				dc.close()
+				return
+			}
+		default:
+			select {
+			case <-dc.done:
+				return
+			case msg := <-dc.textCh:
+				if err := wsWrite(dc.conn, msg.typ, msg.data); err != nil {
+					dc.close()
+					return
+				}
+			case frame := <-dc.frameCh:
+				if err := wsWrite(dc.conn, websocket.MessageText, frame.header); err != nil {
+					dc.close()
+					return
+				}
+				if err := wsWrite(dc.conn, websocket.MessageBinary, frame.data); err != nil {
+					dc.close()
+					return
+				}
+			}
+		}
+	}
+}
+
+func (dc *dashConn) close() {
+	dc.closeOnce.Do(func() {
+		close(dc.done)
+		_ = dc.conn.Close(websocket.StatusNormalClosure, "dash writer closed")
+	})
+}
+
+func (dc *dashConn) enqueueText(msgType websocket.MessageType, data []byte) error {
+	select {
+	case <-dc.done:
+		return fmt.Errorf("dash connection closed")
+	case dc.textCh <- dashTextMessage{typ: msgType, data: data}:
+		return nil
+	}
+}
+
+func (dc *dashConn) enqueueJSON(msg WSMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return dc.enqueueText(websocket.MessageText, data)
+}
+
+func (dc *dashConn) enqueueFrame(header, data []byte) error {
+	frame := dashFrameMessage{header: header, data: data}
+	select {
+	case <-dc.done:
+		return fmt.Errorf("dash connection closed")
+	default:
+	}
+
+	select {
+	case dc.frameCh <- frame:
+		return nil
+	default:
+	}
+
+	select {
+	case <-dc.frameCh:
+	default:
+	}
+
+	select {
+	case <-dc.done:
+		return fmt.Errorf("dash connection closed")
+	case dc.frameCh <- frame:
+		return nil
+	default:
+		return nil
+	}
+}
+
+func (dc *dashConn) setWatchState(deviceID string, watchAll bool) {
+	dc.stateMu.Lock()
+	dc.deviceID = deviceID
+	dc.watchAll = watchAll
+	dc.stateMu.Unlock()
+}
+
+func (dc *dashConn) getWatchState() (string, bool) {
+	dc.stateMu.RLock()
+	defer dc.stateMu.RUnlock()
+	return dc.deviceID, dc.watchAll
+}
+
+func (dc *dashConn) setLastVersion(version int64) {
+	dc.stateMu.Lock()
+	dc.lastVersion = version
+	dc.stateMu.Unlock()
+}
+
+func (dc *dashConn) getLastVersion() int64 {
+	dc.stateMu.RLock()
+	defer dc.stateMu.RUnlock()
+	return dc.lastVersion
+}
+
+func (h *Hub) bumpDeviceVersion() {
+	h.mu.Lock()
+	h.deviceVersion++
+	h.mu.Unlock()
 }
 
 func (h *Hub) registerDevice(deviceID string, dc *deviceConn) {
@@ -122,6 +295,7 @@ func (h *Hub) registerDevice(deviceID string, dc *deviceConn) {
 			}
 		}
 	}
+	h.bumpDeviceVersion()
 	hub.broadcastDeviceList()
 	log.Printf("[hub] device %s connected", deviceID)
 }
@@ -137,23 +311,66 @@ func (h *Hub) unregisterDevice(deviceID string, dc *deviceConn) {
 	// Only perform offline operations when confirmed as our own connection
 	if ok && current == dc {
 		setDeviceOffline(deviceID)
+		h.bumpDeviceVersion()
 		hub.broadcastDeviceList()
 		log.Printf("[hub] device %s disconnected", deviceID)
+	}
+}
+
+func (h *Hub) dropDevice(deviceID, reason string) {
+	h.mu.Lock()
+	dc, ok := h.devices[deviceID]
+	if ok {
+		delete(h.devices, deviceID)
+	}
+	h.mu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	if dc.conn != nil {
+		_ = dc.conn.Close(websocket.StatusNormalClosure, reason)
+	}
+	if err := setDeviceOffline(deviceID); err != nil {
+		log.Printf("[hub] setDeviceOffline error for %s: %v", deviceID, err)
+	}
+	h.bumpDeviceVersion()
+	h.broadcastDeviceList()
+	log.Printf("[hub] device %s dropped: %s", deviceID, reason)
+}
+
+func (h *Hub) dropDevicesByUser(userID, reason string) {
+	h.mu.RLock()
+	var deviceIDs []string
+	for deviceID, dc := range h.devices {
+		if dc.userID == userID {
+			deviceIDs = append(deviceIDs, deviceID)
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, deviceID := range deviceIDs {
+		h.dropDevice(deviceID, reason)
 	}
 }
 
 func (h *Hub) registerDash(dc *dashConn) {
 	h.mu.Lock()
 	h.dash[dc] = true
+	total := len(h.dash)
 	h.mu.Unlock()
-	log.Printf("[hub] dashboard connected (total: %d)", len(h.dash))
+	go dc.runWriter()
+	log.Printf("[hub] dashboard connected (total: %d)", total)
 }
 
 func (h *Hub) unregisterDash(dc *dashConn) {
 	h.mu.Lock()
 	delete(h.dash, dc)
+	total := len(h.dash)
 	h.mu.Unlock()
-	log.Printf("[hub] dashboard disconnected (total: %d)", len(h.dash))
+	dc.close()
+	log.Printf("[hub] dashboard disconnected (total: %d)", total)
 }
 
 func (h *Hub) sendToDevice(deviceID string, msg WSMessage) error {
@@ -173,7 +390,7 @@ func (h *Hub) sendToDevice(deviceID string, msg WSMessage) error {
 }
 
 func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
-	header, err := json.Marshal(WSMessage{Type: "frame", DeviceID: deviceID})
+	header, err := json.Marshal(WSMessage{Type: "frame", DeviceID: deviceID, Mime: "image/webp"})
 	if err != nil {
 		log.Printf("[hub] marshal frame header error: %v", err)
 		return
@@ -181,36 +398,38 @@ func (h *Hub) broadcastFrame(deviceID string, frameData []byte) {
 
 	// Collect matching dash connections first, then write after releasing the lock
 	h.mu.RLock()
+	source, sourceOK := h.devices[deviceID]
 	var targets []*dashConn
 	for dc := range h.dash {
-		if dc.deviceID == deviceID || dc.watchAll {
+		watchDeviceID, watchAll := dc.getWatchState()
+		allowed := false
+		if sourceOK {
+			allowed = source.userID != "" && dc.userID == source.userID
+		}
+		if allowed && (watchDeviceID == deviceID || watchAll) {
 			targets = append(targets, dc)
 		}
 	}
 	h.mu.RUnlock()
 
 	for _, dc := range targets {
-		go func(dc *dashConn) {
-			dc.mu.Lock()
-			defer dc.mu.Unlock()
-			wsWrite(dc.conn, websocket.MessageText, header)
-			wsWrite(dc.conn, websocket.MessageBinary, frameData)
-		}(dc)
+		if err := dc.enqueueFrame(header, frameData); err != nil {
+			log.Printf("[hub] enqueue frame failed: %v", err)
+		}
 	}
 }
 
 func (h *Hub) broadcastToDash(msg WSMessage) {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		log.Printf("[hub] marshal broadcast error: %v", err)
-		return
-	}
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	var targets []*dashConn
 	for dc := range h.dash {
-		dc.mu.Lock()
-		wsWrite(dc.conn, websocket.MessageText, data)
-		dc.mu.Unlock()
+		targets = append(targets, dc)
+	}
+	h.mu.RUnlock()
+	for _, dc := range targets {
+		if err := dc.enqueueJSON(msg); err != nil {
+			log.Printf("[hub] enqueue broadcast error: %v", err)
+		}
 	}
 }
 
@@ -227,6 +446,91 @@ func filterDevicesForUser(dc *dashConn, devices []Device) []Device {
 	return result
 }
 
+func mergeRuntimeStateIntoDevice(dev *Device) {
+	if dev == nil {
+		return
+	}
+	hub.mu.RLock()
+	dc, ok := hub.devices[dev.ID]
+	hub.mu.RUnlock()
+	if !ok {
+		return
+	}
+	dc.mu.Lock()
+	dev.LastFrame = dc.lastFrame
+	dev.LastMessage = dc.lastMessage
+	dev.Permissions = dc.permissions
+	dev.ScreenOn = dc.screenOn
+	dc.mu.Unlock()
+}
+
+func mergeRuntimeDeviceState(devices []Device) []Device {
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	for i := range devices {
+		if dc, ok := hub.devices[devices[i].ID]; ok {
+			dc.mu.Lock()
+			devices[i].LastFrame = dc.lastFrame
+			devices[i].LastMessage = dc.lastMessage
+			devices[i].Permissions = dc.permissions
+			devices[i].ScreenOn = dc.screenOn
+			dc.mu.Unlock()
+		}
+	}
+	return devices
+}
+
+func (h *Hub) setDeviceCache(devices []Device) {
+	h.mu.Lock()
+	h.deviceCache = cloneDeviceSnapshots(devices)
+	h.cacheTime = time.Now()
+	h.mu.Unlock()
+}
+
+func (h *Hub) getCachedDeviceSnapshot(maxAge time.Duration) ([]Device, bool) {
+	h.mu.RLock()
+	if h.cacheTime.IsZero() || time.Since(h.cacheTime) > maxAge {
+		h.mu.RUnlock()
+		return nil, false
+	}
+	devices := cloneDeviceSnapshots(h.deviceCache)
+	h.mu.RUnlock()
+	return mergeRuntimeDeviceState(devices), true
+}
+
+func loadDevicesSnapshot(load func() ([]Device, error)) ([]Device, error) {
+	devices, err := load()
+	if err != nil {
+		if isLockError(err) {
+			if cached, ok := hub.getCachedDeviceSnapshot(deviceListCacheTTL); ok {
+				log.Printf("[hub] loadDevicesSnapshot: fallback to cached snapshot after lock error: %v", err)
+				return cached, nil
+			}
+		}
+		return nil, err
+	}
+	devices = mergeRuntimeDeviceState(devices)
+	hub.setDeviceCache(devices)
+	return devices, nil
+}
+
+func loadAllDevicesSnapshot() ([]Device, error) {
+	return loadDevicesSnapshot(getDevices)
+}
+
+func enqueueDeviceListSnapshot(dc *dashConn, load func() ([]Device, error)) error {
+	devices, err := load()
+	if err != nil {
+		_ = dc.enqueueJSON(WSMessage{Type: "error", Reason: "device list unavailable"})
+		return err
+	}
+	return dc.enqueueJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)})
+}
+
+func shouldCloseStaleDevice(lastMessage, now time.Time) bool {
+	return now.Sub(lastMessage) > deviceWatchdogTimeout
+}
+
 func (h *Hub) broadcastDeviceList() {
 	h.mu.Lock()
 	now := time.Now()
@@ -237,34 +541,24 @@ func (h *Hub) broadcastDeviceList() {
 	h.lastBroadcast = now
 	h.mu.Unlock()
 
-	devices, err := getDevices()
+	devices, err := loadAllDevicesSnapshot()
 	if err != nil {
 		log.Printf("[hub] error getting device list: %v", err)
 		return
 	}
 
 	h.mu.RLock()
-	for i := range devices {
-		if dc, ok := h.devices[devices[i].ID]; ok {
-			devices[i].LastFrame = dc.lastFrame
-			devices[i].Permissions = dc.permissions
-			devices[i].ScreenOn = dc.screenOn
-		}
+	var targets []*dashConn
+	for dc := range h.dash {
+		targets = append(targets, dc)
 	}
 	h.mu.RUnlock()
 
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for dc := range h.dash {
+	for _, dc := range targets {
 		userDevices := filterDevicesForUser(dc, devices)
-		msg, err := json.Marshal(WSMessage{Type: "device_list", Devices: userDevices})
-		if err != nil {
-			log.Printf("[hub] marshal device_list error: %v", err)
-			continue
+		if err := dc.enqueueJSON(WSMessage{Type: "device_list", Devices: userDevices}); err != nil {
+			log.Printf("[hub] enqueue device_list error: %v", err)
 		}
-		dc.mu.Lock()
-		wsWrite(dc.conn, websocket.MessageText, msg)
-		dc.mu.Unlock()
 	}
 }
 
@@ -300,8 +594,8 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var authMsg WSMessage
-	if err := json.Unmarshal(msgBytes, &authMsg); err != nil || authMsg.Type != "auth" {
-		log.Printf("[ws/device] auth parse error: %v, type=%s", err, authMsg.Type)
+	if parseErr := json.Unmarshal(msgBytes, &authMsg); parseErr != nil || authMsg.Type != "auth" {
+		log.Printf("[ws/device] auth parse error: %v, type=%s", parseErr, authMsg.Type)
 		wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "auth_fail", Reason: "invalid auth message"}))
 		return
 	}
@@ -341,8 +635,10 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID = dev.ID
-	dc.lastFrame = time.Now()
+	now := time.Now()
+	dc.lastMessage = now
 	dc.deviceID = deviceID
+	dc.userID = dev.UserID
 
 	if authMsg.Info != nil {
 		var info struct {
@@ -391,7 +687,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		// 15s read timeout: devices send device_ping every 5s, 3x tolerance for fast disconnection detection
-		readCtx, cancel := context.WithTimeout(bgCtx, 15*time.Second)
+		readCtx, cancel := context.WithTimeout(bgCtx, deviceReadTimeout)
 		msgType, data, err := c.Read(readCtx)
 		cancel()
 		if err != nil {
@@ -399,9 +695,14 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		dc.lastFrame = time.Now()
+		dc.mu.Lock()
+		dc.lastMessage = time.Now()
+		dc.mu.Unlock()
 
 		if msgType == websocket.MessageBinary {
+			dc.mu.Lock()
+			dc.lastFrame = time.Now()
+			dc.mu.Unlock()
 			hub.broadcastFrame(deviceID, data)
 		} else {
 			var msg WSMessage
@@ -413,12 +714,17 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 				case "pong":
 				case "device_ping":
 					// Device actively probes latency, echo the timestamp back
-					wsWrite(c, websocket.MessageText, mustJSON(WSMessage{
+					dc.mu.Lock()
+					err := wsWrite(c, websocket.MessageText, mustJSON(WSMessage{
 						Type: "device_pong", Text: msg.Text,
 					}))
+					dc.mu.Unlock()
+					if err != nil {
+						return
+					}
 				case "unbind":
 					db.Exec("UPDATE devices SET status='unbound' WHERE id=?", deviceID)
-					go hub.broadcastDeviceList()
+					go hub.dropDevice(deviceID, "device unbound")
 				case "task_status":
 					status := "running"
 					if strings.Contains(msg.Text, "完成任务") || strings.Contains(msg.Text, "任务完成") || strings.Contains(msg.Text, "✅") {
@@ -454,6 +760,7 @@ func handleDeviceWS(w http.ResponseWriter, r *http.Request) {
 						dc.permissions = info.Permissions
 						dc.screenOn = info.ScreenOn
 						dc.mu.Unlock()
+						hub.bumpDeviceVersion()
 						hub.broadcastDeviceList()
 					}
 				default:
@@ -497,27 +804,22 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 	defer c.Close(websocket.StatusInternalError, "")
 
 	u := getUserFromRequest(r)
-	dc := &dashConn{conn: c}
+	dc := newDashConn(c)
 	if u != nil {
 		dc.userID = u.ID
+		dc.role = u.Role
 	} else if queryTokenUser != nil {
 		dc.userID = queryTokenUser.ID
+		dc.role = queryTokenUser.Role
 	}
 	hub.registerDash(dc)
 	defer hub.unregisterDash(dc)
 
 	// Send initial device_list with in-memory permissions merged
-	devices, _ := getDevices()
-	hub.mu.RLock()
-	for i := range devices {
-		if devConn, ok := hub.devices[devices[i].ID]; ok {
-			devices[i].Permissions = devConn.permissions
-			devices[i].ScreenOn = devConn.screenOn
-			devices[i].LastFrame = devConn.lastFrame
-		}
+	if err := enqueueDeviceListSnapshot(dc, loadAllDevicesSnapshot); err != nil {
+		log.Printf("[ws/dash] initial device_list unavailable: %v", err)
+		return
 	}
-	hub.mu.RUnlock()
-	wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
 
 	// Periodically sync device status (10s), correct missed updates when changes detected
 	syncDone := make(chan struct{})
@@ -534,16 +836,13 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 				hub.mu.RLock()
 				curVersion := hub.deviceVersion
 				hub.mu.RUnlock()
-				if curVersion == dc.lastVersion {
+				if curVersion == dc.getLastVersion() {
 					continue
 				}
-				dc.lastVersion = curVersion
-				dc.mu.Lock()
-				devs, _ := getDevices()
-				err := wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devs)}))
-				dc.mu.Unlock()
-				if err != nil {
-					return
+				dc.setLastVersion(curVersion)
+				if err := enqueueDeviceListSnapshot(dc, loadAllDevicesSnapshot); err != nil {
+					log.Printf("[ws/dash] periodic device_list unavailable: %v", err)
+					continue
 				}
 			}
 		}
@@ -563,33 +862,77 @@ func handleDashWS(w http.ResponseWriter, r *http.Request) {
 
 		switch msg.Type {
 		case "watch":
-			dc.deviceID = msg.DeviceID
-			dc.watchAll = false
+			dev, allowed, err := canAccessDevice(dc.userID, dc.role, msg.DeviceID)
+			if err != nil {
+				_ = dc.enqueueJSON(WSMessage{Type: "error", Reason: "server error"})
+				continue
+			}
+			if dev == nil {
+				_ = dc.enqueueJSON(WSMessage{Type: "error", Reason: "device not found"})
+				continue
+			}
+			if !allowed {
+				_ = dc.enqueueJSON(WSMessage{Type: "error", Reason: "access denied"})
+				continue
+			}
+			dc.setWatchState(msg.DeviceID, false)
 			log.Printf("[ws/dash] watching device: %s", msg.DeviceID)
 		case "watch_all":
-			dc.watchAll = true
+			dc.setWatchState("", true)
 			log.Printf("[ws/dash] watching all devices")
 		case "watch_one":
-			dc.watchAll = false
-			dc.deviceID = msg.DeviceID
+			dev, allowed, err := canAccessDevice(dc.userID, dc.role, msg.DeviceID)
+			if err != nil {
+				_ = dc.enqueueJSON(WSMessage{Type: "error", Reason: "server error"})
+				continue
+			}
+			if dev == nil {
+				_ = dc.enqueueJSON(WSMessage{Type: "error", Reason: "device not found"})
+				continue
+			}
+			if !allowed {
+				_ = dc.enqueueJSON(WSMessage{Type: "error", Reason: "access denied"})
+				continue
+			}
+			dc.setWatchState(msg.DeviceID, false)
 			log.Printf("[ws/dash] watching one: %s", msg.DeviceID)
 		case "cmd_tap", "cmd_swipe", "cmd_input", "cmd_task", "cmd_key", "cmd_cancel_task":
 			if msg.DeviceID == "" {
-				msg.DeviceID = dc.deviceID
+				msg.DeviceID, _ = dc.getWatchState()
 			}
 			if msg.DeviceID != "" {
+				dev, allowed, err := canAccessDevice(dc.userID, dc.role, msg.DeviceID)
+				if err != nil {
+					_ = dc.enqueueJSON(WSMessage{
+						Type: "error", Reason: "server error",
+					})
+					continue
+				}
+				if dev == nil {
+					_ = dc.enqueueJSON(WSMessage{
+						Type: "error", Reason: "device not found",
+					})
+					continue
+				}
+				if !allowed {
+					_ = dc.enqueueJSON(WSMessage{
+						Type: "error", Reason: "access denied",
+					})
+					continue
+				}
 				if err := hub.sendToDevice(msg.DeviceID, msg); err != nil {
-					wsWrite(c, websocket.MessageText, mustJSON(WSMessage{
+					_ = dc.enqueueJSON(WSMessage{
 						Type: "error", Reason: fmt.Sprintf("send command to device failed: %s", err.Error()),
-					}))
+					})
 					log.Printf("[ws/dash] send command to device %s failed: %v", msg.DeviceID, err)
 				} else {
 					log.Printf("[ws/dash] command %s sent to device %s", msg.Type, msg.DeviceID)
 				}
 			}
 		case "refresh":
-			devices, _ := getDevices()
-			wsWrite(c, websocket.MessageText, mustJSON(WSMessage{Type: "device_list", Devices: filterDevicesForUser(dc, devices)}))
+			if err := enqueueDeviceListSnapshot(dc, loadAllDevicesSnapshot); err != nil {
+				log.Printf("[ws/dash] refresh device_list unavailable: %v", err)
+			}
 		}
 	}
 }
@@ -614,11 +957,13 @@ func (h *Hub) watchdog() {
 func (h *Hub) checkDevices() {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+	now := time.Now()
 	for deviceID, dc := range h.devices {
 		dc.mu.Lock()
-		age := time.Since(dc.lastFrame)
+		lastMessage := dc.lastMessage
+		age := now.Sub(lastMessage)
 		dc.mu.Unlock()
-		if age > 10*time.Second {
+		if shouldCloseStaleDevice(lastMessage, now) {
 			log.Printf("[hub] watchdog: device %s no message for %.0fs, closing", deviceID, age.Seconds())
 			dc.conn.Close(websocket.StatusNormalClosure, "watchdog: no data")
 		}

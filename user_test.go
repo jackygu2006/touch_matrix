@@ -171,6 +171,8 @@ func TestAdminDeleteUser(t *testing.T) {
 	defer teardownTest()
 
 	u := createTestUser(t, "todelete@nftouch.local", "pass123456", "user")
+	createTestDeviceInDB(t, "user-dev-del", u.ID)
+	addDeviceToHub("user-dev-del", u.ID)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("DELETE", "/api/admin/users/"+u.ID, nil)
@@ -185,6 +187,9 @@ func TestAdminDeleteUser(t *testing.T) {
 	if got != nil {
 		t.Fatal("user should be deleted")
 	}
+	if _, ok := hub.devices["user-dev-del"]; ok {
+		t.Fatal("user device should be dropped from hub after user deletion")
+	}
 }
 
 func TestAdminToggleUserStatus(t *testing.T) {
@@ -192,6 +197,8 @@ func TestAdminToggleUserStatus(t *testing.T) {
 	defer teardownTest()
 
 	u := createTestUser(t, "toggle@nftouch.local", "pass123456", "user")
+	createTestDeviceInDB(t, "user-dev-toggle", u.ID)
+	addDeviceToHub("user-dev-toggle", u.ID)
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("PUT", "/api/admin/users/"+u.ID+"/toggle", nil)
@@ -205,6 +212,9 @@ func TestAdminToggleUserStatus(t *testing.T) {
 	got, _ := getUserByID(u.ID)
 	if got.Status != "disabled" {
 		t.Fatalf("expected disabled, got %s", got.Status)
+	}
+	if _, ok := hub.devices["user-dev-toggle"]; ok {
+		t.Fatal("user device should be dropped from hub when user is disabled")
 	}
 
 	// Toggle back

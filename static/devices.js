@@ -100,16 +100,22 @@ function renderDeviceList() {
       }
 
       // Check if device has no data (5s no frame = may be stuck, 8s no message = may be offline)
-      if (dev.last_frame && new Date(dev.last_frame).getTime() > 0) {
-        var age = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
-        if (age > 8) {
-          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">' + __('devices.offline_warning', Math.round(age)) + '</div>';
+      var lastMessageTs = dev.last_message_at && new Date(dev.last_message_at).getTime() > 0
+        ? new Date(dev.last_message_at).getTime()
+        : 0;
+      if (lastMessageTs > 0) {
+        var msgAge = (Date.now() - lastMessageTs) / 1000;
+        if (msgAge > 8) {
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">' + __('devices.offline_warning', Math.round(msgAge)) + '</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
           canvas.classList.add('hidden');
           window._hasActiveWarning = true;
           return;
         }
-        if (age > 5) {
+      }
+      if (dev.last_frame && new Date(dev.last_frame).getTime() > 0) {
+        var frameAge = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
+        if (frameAge > 5) {
           document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">' + __('devices.no_screen') + '</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
           canvas.classList.add('hidden');
@@ -394,4 +400,3 @@ function buildGrid() {
   });
   countEl.textContent = devices.length + ' ' + __('grid.units');
 }
-

@@ -214,10 +214,19 @@ function renderDeviceList() {
       document.getElementById('screen-placeholder').classList.remove('hidden');
       canvas.classList.add('hidden');
     } else {
-      // 检测 ScreenStreamer 是否卡死（5秒无帧）
+      // 检测离线与无画面状态
+      if (dev.last_message_at && new Date(dev.last_message_at).getTime() > 0) {
+        var msgAge = (Date.now() - new Date(dev.last_message_at).getTime()) / 1000;
+        if (msgAge > 8) {
+          document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备可能已离线<br>最近消息距今 ' + Math.round(msgAge) + ' 秒</div>';
+          document.getElementById('screen-placeholder').classList.remove('hidden');
+          canvas.classList.add('hidden');
+          return;
+        }
+      }
       if (dev.last_frame && new Date(dev.last_frame).getTime() > 0) {
-        var age = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
-        if (age > 5) {
+        var frameAge = (Date.now() - new Date(dev.last_frame).getTime()) / 1000;
+        if (frameAge > 5) {
           document.getElementById('screen-placeholder').innerHTML = '<div style="color:var(--offline);font-size:14px;text-align:center;">⚠ 设备在线但无画面<br>请重启无障碍服务或NF Touch</div>';
           document.getElementById('screen-placeholder').classList.remove('hidden');
           canvas.classList.add('hidden');

@@ -200,6 +200,7 @@ func handleAdminUser(w http.ResponseWriter, r *http.Request) {
 	case "DELETE":
 		// Also delete user's devices
 		db.Exec("DELETE FROM devices WHERE user_id=?", id)
+		hub.dropDevicesByUser(id, "user deleted")
 		db.Exec("DELETE FROM users WHERE id=? AND role!='admin'", id)
 		writeJSON(w, 200, map[string]string{"status": "deleted"})
 	default:
@@ -219,6 +220,9 @@ func handleAdminUserToggle(w http.ResponseWriter, r *http.Request) {
 		newStatus = "disabled"
 	}
 	db.Exec("UPDATE users SET status=? WHERE id=?", newStatus, id)
+	if newStatus == "disabled" {
+		hub.dropDevicesByUser(id, "user disabled")
+	}
 	writeJSON(w, 200, map[string]string{"status": newStatus})
 }
 
@@ -245,7 +249,7 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deviceID, err := validatePairingCode(req.Code)
+	deviceID, err := getValidPairingDeviceID(req.Code)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
@@ -273,12 +277,32 @@ func handleBind(w http.ResponseWriter, r *http.Request) {
 		userID = u.ID
 	}
 
-	// Clean up old device records (keep online devices to avoid disconnection)
-	db.Exec("DELETE FROM devices WHERE id=? AND status != 'online'", deviceID)
-
-	_, err = db.Exec(`INSERT INTO device_codes (code, device_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`, req.Code, deviceID, userID, tokenHash)
+	tx, err := db.Begin()
 	if err != nil {
-		log.Printf("[bind] update device_codes error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	defer tx.Rollback()
+
+	deviceID, err = consumePairingCodeForBind(tx, req.Code, userID, tokenHash)
+	if err != nil {
+		log.Printf("[bind] consume pairing code error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if deviceID == "" {
+		writeJSON(w, 400, map[string]string{"error": "invalid or expired code"})
+		return
+	}
+
+	// Clean up old device records (keep online devices to avoid disconnection)
+	if _, err := tx.Exec("DELETE FROM devices WHERE id=? AND status != 'online'", deviceID); err != nil {
+		log.Printf("[bind] cleanup stale device error: %v", err)
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("[bind] tx commit error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
@@ -297,19 +321,36 @@ func handleGetDevices(w http.ResponseWriter, r *http.Request) {
 	if u != nil {
 		devices, err = getDevicesByUserID(u.ID)
 	} else {
-		devices, err = getDevices()
+		devices, err = loadAllDevicesSnapshot()
 	}
 	if err != nil {
 		log.Printf("[api] getDevices error: %v", err)
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
+	if u != nil {
+		devices = mergeRuntimeDeviceState(devices)
+	}
 	writeJSON(w, 200, devices)
+}
+
+func canAccessDevice(userID, role, deviceID string) (*Device, bool, error) {
+	dev, err := getDevice(deviceID)
+	if err != nil || dev == nil {
+		return dev, false, err
+	}
+	_ = role
+	return dev, dev.UserID != "" && dev.UserID == userID, nil
 }
 
 func handleGetDevice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	dev, err := getDevice(id)
+	u := getUserFromRequest(r)
+	if u == nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	dev, allowed, err := canAccessDevice(u.ID, u.Role, id)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
@@ -318,6 +359,11 @@ func handleGetDevice(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 404, map[string]string{"error": "device not found"})
 		return
 	}
+	if !allowed {
+		writeJSON(w, 403, map[string]string{"error": "access denied"})
+		return
+	}
+	mergeRuntimeStateIntoDevice(dev)
 	writeJSON(w, 200, dev)
 }
 
@@ -337,17 +383,25 @@ func handlePostTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dev, _ := getDevice(deviceID)
+	u := getUserFromRequest(r)
+	if u == nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	dev, allowed, err := canAccessDevice(u.ID, u.Role, deviceID)
 	if dev == nil {
 		writeJSON(w, 404, map[string]string{"error": "device not found"})
 		return
 	}
-
-	u := getUserFromRequest(r)
-	userID := ""
-	if u != nil {
-		userID = u.ID
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
 	}
+	if !allowed {
+		writeJSON(w, 403, map[string]string{"error": "access denied"})
+		return
+	}
+	userID := u.ID
 	taskID, err := insertTaskRecord(deviceID, userID, req.Prompt)
 	if err != nil {
 		log.Printf("[api] insertTaskRecord error: %v", err)
@@ -370,9 +424,29 @@ func handlePostTask(w http.ResponseWriter, r *http.Request) {
 
 func handleGetTasks(w http.ResponseWriter, r *http.Request) {
 	deviceID := r.PathValue("id")
+	u := getUserFromRequest(r)
+	if u == nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	dev, allowed, err := canAccessDevice(u.ID, u.Role, deviceID)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if dev == nil {
+		writeJSON(w, 404, map[string]string{"error": "device not found"})
+		return
+	}
+	if !allowed {
+		writeJSON(w, 403, map[string]string{"error": "access denied"})
+		return
+	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if limit <= 0 { limit = 20 }
+	if limit <= 0 {
+		limit = 20
+	}
 	tasks, err := getTaskHistory(deviceID, limit, offset)
 	if err != nil {
 		writeJSON(w, 500, map[string]string{"error": "failed to get tasks"})
@@ -383,6 +457,24 @@ func handleGetTasks(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	deviceID := r.PathValue("id")
+	u := getUserFromRequest(r)
+	if u == nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	dev, allowed, err := canAccessDevice(u.ID, u.Role, deviceID)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if dev == nil {
+		writeJSON(w, 404, map[string]string{"error": "device not found"})
+		return
+	}
+	if !allowed {
+		writeJSON(w, 403, map[string]string{"error": "access denied"})
+		return
+	}
 	taskID, err := strconv.ParseInt(r.PathValue("tid"), 10, 64)
 	if err != nil {
 		writeJSON(w, 400, map[string]string{"error": "invalid task id"})
@@ -397,6 +489,24 @@ func handleDeleteTask(w http.ResponseWriter, r *http.Request) {
 
 func handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	u := getUserFromRequest(r)
+	if u == nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	dev, allowed, err := canAccessDevice(u.ID, u.Role, id)
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if dev == nil {
+		writeJSON(w, 404, map[string]string{"error": "device not found"})
+		return
+	}
+	if !allowed {
+		writeJSON(w, 403, map[string]string{"error": "access denied"})
+		return
+	}
 	tx, err := db.Begin()
 	if err != nil {
 		log.Printf("[device] tx begin error: %v", err)
@@ -423,6 +533,7 @@ func handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]string{"error": "server error"})
 		return
 	}
+	hub.dropDevice(id, "device deleted")
 	writeJSON(w, 200, map[string]string{"status": "deleted"})
 }
 

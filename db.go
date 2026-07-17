@@ -9,31 +9,35 @@ import (
 	"strings"
 	"sync"
 	"time"
+
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
-
+const (
+	dbReadRetryCount = 3
+	dbReadRetryDelay = 25 * time.Millisecond
+)
 
 // Database Layer
 // ============================================================
 
-
 type Device struct {
-	ID          string           `json:"id"`
-	LastFrame   time.Time        `json:"last_frame"`
-	UserID      string           `json:"user_id,omitempty"`
-	Name        string           `json:"name"`
-	TokenHash   string           `json:"-"`
-	Status      string           `json:"status"`
-	Brand       string           `json:"brand"`
-	Model       string           `json:"model"`
-	Resolution  string           `json:"resolution"`
-	Battery     int              `json:"battery"`
-	ScreenOn    bool             `json:"screen_on"`
-	Permissions map[string]bool  `json:"permissions,omitempty"`
-	LastSeen    *string          `json:"last_seen"`
-	CreatedAt   string           `json:"created_at"`
+	ID          string          `json:"id"`
+	LastFrame   time.Time       `json:"last_frame"`
+	LastMessage time.Time       `json:"last_message_at,omitempty"`
+	UserID      string          `json:"user_id,omitempty"`
+	Name        string          `json:"name"`
+	TokenHash   string          `json:"-"`
+	Status      string          `json:"status"`
+	Brand       string          `json:"brand"`
+	Model       string          `json:"model"`
+	Resolution  string          `json:"resolution"`
+	Battery     int             `json:"battery"`
+	ScreenOn    bool            `json:"screen_on"`
+	Permissions map[string]bool `json:"permissions,omitempty"`
+	LastSeen    *string         `json:"last_seen"`
+	CreatedAt   string          `json:"created_at"`
 }
 
 type User struct {
@@ -143,7 +147,7 @@ func initDB(dbPath string) error {
 		db.Exec("CREATE INDEX IF NOT EXISTS idx_task_device ON task_history(device_id, created_at DESC)")
 		db.Exec("INSERT INTO schema_version (version) VALUES (3)")
 	}
-return nil
+	return nil
 }
 
 func isLockError(err error) bool {
@@ -195,9 +199,19 @@ func setDeviceOffline(deviceID string) error {
 }
 
 func getDevices() ([]Device, error) {
-	rows, err := db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, COALESCE(status,'offline') as status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
-	if err != nil {
-		return nil, err
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	for attempt := 0; attempt < dbReadRetryCount; attempt++ {
+		rows, err = db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, COALESCE(status,'offline') as status, brand, model, resolution, battery, last_seen, created_at FROM devices ORDER BY created_at ASC`)
+		if err == nil {
+			break
+		}
+		if !isLockError(err) || attempt == dbReadRetryCount-1 {
+			return nil, err
+		}
+		time.Sleep(dbReadRetryDelay)
 	}
 	defer rows.Close()
 
@@ -220,9 +234,19 @@ func getDevices() ([]Device, error) {
 }
 
 func getDevicesByUserID(userID string) ([]Device, error) {
-	rows, err := db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, COALESCE(status,'offline') as status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE user_id=? OR user_id='' ORDER BY created_at ASC`, userID)
-	if err != nil {
-		return nil, err
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	for attempt := 0; attempt < dbReadRetryCount; attempt++ {
+		rows, err = db.Query(`SELECT id, COALESCE(user_id,'') as user_id, name, COALESCE(status,'offline') as status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE user_id=? OR user_id='' ORDER BY created_at ASC`, userID)
+		if err == nil {
+			break
+		}
+		if !isLockError(err) || attempt == dbReadRetryCount-1 {
+			return nil, err
+		}
+		time.Sleep(dbReadRetryDelay)
 	}
 	defer rows.Close()
 
@@ -247,8 +271,18 @@ func getDevicesByUserID(userID string) ([]Device, error) {
 func getDevice(id string) (*Device, error) {
 	var d Device
 	var lastSeen sql.NullString
-	err := db.QueryRow(`SELECT id, COALESCE(user_id,'') as user_id, token_hash, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
-		Scan(&d.ID, &d.UserID, &d.TokenHash, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
+	var err error
+	for attempt := 0; attempt < dbReadRetryCount; attempt++ {
+		err = db.QueryRow(`SELECT id, COALESCE(user_id,'') as user_id, token_hash, name, status, brand, model, resolution, battery, last_seen, created_at FROM devices WHERE id=?`, id).
+			Scan(&d.ID, &d.UserID, &d.TokenHash, &d.Name, &d.Status, &d.Brand, &d.Model, &d.Resolution, &d.Battery, &lastSeen, &d.CreatedAt)
+		if err == nil || err == sql.ErrNoRows {
+			break
+		}
+		if !isLockError(err) || attempt == dbReadRetryCount-1 {
+			return nil, err
+		}
+		time.Sleep(dbReadRetryDelay)
+	}
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -344,6 +378,36 @@ func countPendingBindsForUser(userID string) int {
 	return count
 }
 
+func getValidPairingDeviceID(code string) (string, error) {
+	var deviceID string
+	err := db.QueryRow(`SELECT device_id FROM device_codes WHERE code=? AND token_hash IS NULL AND expires_at >= datetime('now')`, code).Scan(&deviceID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return deviceID, err
+}
+
+func consumePairingCodeForBind(tx *sql.Tx, code, userID, tokenHash string) (string, error) {
+	var deviceID string
+	err := tx.QueryRow(`
+		DELETE FROM device_codes
+		WHERE code=? AND token_hash IS NULL AND expires_at >= datetime('now')
+		RETURNING device_id
+	`, code).Scan(&deviceID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	_, err = tx.Exec(`INSERT INTO device_codes (code, device_id, user_id, token_hash, expires_at) VALUES (?, ?, ?, ?, datetime('now', '+10 minutes'))`,
+		code, deviceID, userID, tokenHash)
+	if err != nil {
+		return "", err
+	}
+	return deviceID, nil
+}
+
 func countDevicesForUser(userID string) int {
 	var count int
 	db.QueryRow("SELECT COUNT(*) FROM devices WHERE user_id=?", userID).Scan(&count)
@@ -402,7 +466,9 @@ func generateCode() string {
 	b := make([]byte, 4)
 	rand.Read(b)
 	code := int(b[0])<<24 | int(b[1])<<16 | int(b[2])<<8 | int(b[3])
-	if code < 0 { code = -code }
+	if code < 0 {
+		code = -code
+	}
 	code = code%900000 + 100000
 	return fmt.Sprintf("%d", code)
 }
@@ -443,7 +509,9 @@ func updateTaskRecord(id int64, status, result string) {
 }
 
 func getTaskHistory(deviceID string, limit, offset int) ([]TaskRecord, error) {
-	if limit <= 0 { limit = 20 }
+	if limit <= 0 {
+		limit = 20
+	}
 	rows, err := db.Query(`SELECT id, device_id, COALESCE(user_id,''), prompt, status, COALESCE(result,''), created_at, updated_at FROM task_history WHERE device_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?`, deviceID, limit, offset)
 	if err != nil {
 		return nil, err

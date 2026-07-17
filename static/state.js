@@ -16,6 +16,13 @@ let devW = 1080, devH = 1920;
 let gridMode = false;
 let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
 
+function getFrameBlob(arrayBuffer, frameHeader) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const payload = arrayBuffer.byteLength > 4 && bytes[0] !== 0xFF ? arrayBuffer.slice(4) : arrayBuffer;
+  const mime = (frameHeader && frameHeader.mime) || 'image/jpeg';
+  return new Blob([payload], {type: mime});
+}
+
 // ============================================================
 // Init
 // ============================================================
@@ -90,10 +97,12 @@ function toast(msg, style) {
 // ============================================================
 function connect() {
   updateStatus('connecting', __('status.connecting'));
-  ws = new WebSocket(wsUrl);
-  ws.binaryType = 'arraybuffer';
+  const currentWs = new WebSocket(wsUrl);
+  ws = currentWs;
+  currentWs.binaryType = 'arraybuffer';
 
-  ws.onopen = () => {
+  currentWs.onopen = () => {
+    if (ws !== currentWs) return;
     updateStatus('connected', __('status.connected'));
     // Fetch device list via REST API as fallback
     fetch('/api/devices', {headers:{'Authorization':'Bearer '+localStorage.getItem('nftouch_token')}})
@@ -103,7 +112,8 @@ function connect() {
 
   let pendingFrameHeader = null;
 
-  ws.onmessage = (e) => {
+  currentWs.onmessage = (e) => {
+    if (ws !== currentWs) return;
     if (typeof e.data === 'string') {
       const msg = JSON.parse(e.data);
       switch (msg.type) {
@@ -130,7 +140,7 @@ function connect() {
         // Grid mode: render to device canvas
         if (gridMode && deviceCanvases[fdevId]) {
           var dc = deviceCanvases[fdevId];
-          const blob = new Blob([e.data.byteLength > 4 && new Uint8Array(e.data)[0] !== 0xFF ? e.data.slice(4) : e.data], {type: 'image/jpeg'});
+          const blob = getFrameBlob(e.data, pendingFrameHeader);
           const url = URL.createObjectURL(blob);
           dc.img.onload = function() {
             dc.canvas.width = dc.img.naturalWidth;
@@ -146,8 +156,7 @@ function connect() {
         }
         // Single mode: render to main canvas
         if (!gridMode && fdevId === activeDeviceId) {
-        const frameDevId = pendingFrameHeader.device_id;
-        const blob = new Blob([e.data.byteLength > 4 && new Uint8Array(e.data)[0] !== 0xFF ? e.data.slice(4) : e.data], {type: 'image/jpeg'});
+        const blob = getFrameBlob(e.data, pendingFrameHeader);
         const url = URL.createObjectURL(blob);
         img.onload = () => {
           devW = img.naturalWidth;
@@ -176,12 +185,18 @@ function connect() {
     }
   };
 
-  ws.onclose = () => {
+  currentWs.onclose = () => {
+    if (ws !== currentWs) return;
+    ws = null;
     updateStatus('disconnected', __('status.disconnected'));
-    setTimeout(connect, 5000);
+    setTimeout(function() {
+      if (!ws) connect();
+    }, 5000);
   };
 
-  ws.onerror = () => {};
+  currentWs.onerror = () => {
+    if (ws !== currentWs) return;
+  };
 }
 
 function send(msg) {
@@ -190,7 +205,7 @@ function send(msg) {
   }
 }
 
-function updateStatus(status, text) {
+function updateStatus(_status, text) {
   if (!activeDeviceId) {
     document.getElementById('status-left').textContent = text;
   }

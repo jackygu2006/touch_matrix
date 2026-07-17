@@ -177,3 +177,108 @@ func TestBindDeviceInvalidCodeFormat(t *testing.T) {
 		t.Fatalf("expected 400 for invalid code format, got %d", w.Code)
 	}
 }
+
+func TestBindDeviceQuotaFullDoesNotConsumeCode(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "quota@nftouch.local", "test123456", "user")
+	if _, err := db.Exec("UPDATE users SET max_devices=1 WHERE id=?", u.ID); err != nil {
+		t.Fatalf("update max_devices: %v", err)
+	}
+	createTestDeviceInDB(t, "device-existing", u.ID)
+	token, _ := generateJWT(u)
+
+	pairingCode, err := createPairingCode("device-bind-quota")
+	if err != nil {
+		t.Fatalf("createPairingCode: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := newJSONRequest("POST", "/api/bind", map[string]string{"code": pairingCode})
+	setAuth(r, token)
+	handleBind(w, r)
+
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for quota full, got %d: %s", w.Code, w.Body.String())
+	}
+
+	deviceID, err := getValidPairingDeviceID(pairingCode)
+	if err != nil {
+		t.Fatalf("getValidPairingDeviceID: %v", err)
+	}
+	if deviceID != "device-bind-quota" {
+		t.Fatalf("expected pairing code to remain valid, got %q", deviceID)
+	}
+}
+
+func TestBindDeviceConsumesCodeOnSuccess(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	u := createTestUser(t, "consume@nftouch.local", "test123456", "user")
+	token, _ := generateJWT(u)
+
+	pairingCode, err := createPairingCode("device-bind-consume")
+	if err != nil {
+		t.Fatalf("createPairingCode: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r := newJSONRequest("POST", "/api/bind", map[string]string{"code": pairingCode})
+	setAuth(r, token)
+	handleBind(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	deviceID, err := getValidPairingDeviceID(pairingCode)
+	if err != nil {
+		t.Fatalf("getValidPairingDeviceID: %v", err)
+	}
+	if deviceID != "" {
+		t.Fatalf("expected pairing code to be consumed, got deviceID=%q", deviceID)
+	}
+}
+
+func TestBindDeviceRepeatedConsumeSingleSuccess(t *testing.T) {
+	setupTest(t)
+	defer teardownTest()
+
+	pairingCode, err := createPairingCode("device-bind-repeat")
+	if err != nil {
+		t.Fatalf("createPairingCode: %v", err)
+	}
+
+	tx1, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin tx1: %v", err)
+	}
+	defer tx1.Rollback()
+
+	deviceID1, err := consumePairingCodeForBind(tx1, pairingCode, "user-1", "token-hash-1")
+	if err != nil {
+		t.Fatalf("consumePairingCodeForBind first call: %v", err)
+	}
+	if deviceID1 != "device-bind-repeat" {
+		t.Fatalf("expected first consume to return device-bind-repeat, got %q", deviceID1)
+	}
+	if err := tx1.Commit(); err != nil {
+		t.Fatalf("commit tx1: %v", err)
+	}
+
+	tx2, err2 := db.Begin()
+	if err2 != nil {
+		t.Fatalf("begin tx2: %v", err2)
+	}
+	defer tx2.Rollback()
+
+	deviceID2, consumeErr := consumePairingCodeForBind(tx2, pairingCode, "user-2", "token-hash-2")
+	if consumeErr != nil {
+		t.Fatalf("consumePairingCodeForBind second call: %v", consumeErr)
+	}
+	if deviceID2 != "" {
+		t.Fatalf("expected second consume to fail, got %q", deviceID2)
+	}
+}
