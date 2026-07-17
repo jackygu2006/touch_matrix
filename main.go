@@ -573,8 +573,17 @@ func authStatic(fs http.Handler) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
-		// CSS/JS do not need auth
-		if strings.HasSuffix(r.URL.Path, ".css") || strings.HasSuffix(r.URL.Path, ".js") {
+		// Public static assets such as CSS/JS/favicon/images must load before login.
+		if strings.HasPrefix(r.URL.Path, "/assets/") ||
+			strings.HasSuffix(r.URL.Path, ".css") ||
+			strings.HasSuffix(r.URL.Path, ".js") ||
+			strings.HasSuffix(r.URL.Path, ".png") ||
+			strings.HasSuffix(r.URL.Path, ".jpg") ||
+			strings.HasSuffix(r.URL.Path, ".jpeg") ||
+			strings.HasSuffix(r.URL.Path, ".gif") ||
+			strings.HasSuffix(r.URL.Path, ".webp") ||
+			strings.HasSuffix(r.URL.Path, ".svg") ||
+			strings.HasSuffix(r.URL.Path, ".ico") {
 			fs.ServeHTTP(w, r)
 			return
 		}

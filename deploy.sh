@@ -21,10 +21,10 @@ echo "Stopped"
 
 echo ""
 echo "=== 3. Upload Files ==="
-ssh "$SERVER" "mkdir -p $REMOTE_DIR/static"
+ssh "$SERVER" "mkdir -p $REMOTE_DIR/static/assets"
 scp nftouch-server "$SERVER:$REMOTE_DIR/" || exit 1
 scp VERSION "$SERVER:$REMOTE_DIR/" || exit 1
-scp -r static/*.html static/*.css static/*.js static/locales "$SERVER:$REMOTE_DIR/static/" || exit 1
+scp -r static/*.html static/*.css static/*.js static/locales static/assets "$SERVER:$REMOTE_DIR/static/" || exit 1
 echo "Upload complete"
 
 echo ""
