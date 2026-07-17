@@ -91,6 +91,7 @@
       if (typeof updateDeviceStatus === 'function') updateDeviceStatus();
       if (typeof renderUserInfo === 'function') renderUserInfo();
       if (typeof buildGrid === 'function') buildGrid();
+      if (typeof updateMobileFullscreenButtons === 'function') updateMobileFullscreenButtons();
     });
   };
 

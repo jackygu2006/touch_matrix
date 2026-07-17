@@ -15,6 +15,76 @@ let img = new Image();
 let devW = 1080, devH = 1920;
 let gridMode = false;
 let deviceCanvases = {}; // device_id -> {canvas, ctx, img, devW, devH}
+let mobileFullscreen = false;
+
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 820px)').matches;
+}
+
+function resizeMainCanvas() {
+  if (!canvas || !devW || !devH) return;
+  var container = document.getElementById('screen-canvas-area');
+  if (!container) return;
+  var rect = container.getBoundingClientRect();
+  var width = Math.floor(rect.width || container.clientWidth || 0);
+  var height = Math.floor(rect.height || container.clientHeight || 0);
+  if (!height && container.parentElement) {
+    height = Math.floor(container.parentElement.clientHeight || 0);
+  }
+  if (!width && container.parentElement) {
+    width = Math.floor(container.parentElement.clientWidth || 0);
+  }
+  if (!width || !height) return;
+  var scale = Math.min(width / devW, height / devH);
+  if (!isFinite(scale) || scale <= 0) return;
+  canvas.style.width = Math.max(2, Math.floor(devW * scale)) + 'px';
+  canvas.style.height = Math.max(2, Math.floor(devH * scale)) + 'px';
+}
+
+function updateMobileFullscreenButtons() {
+  var enterBtn = document.getElementById('fullscreen-toggle');
+  var exitBtn = document.getElementById('mobile-fullscreen-exit');
+  var canShow = isMobileViewport();
+  if (enterBtn) {
+    enterBtn.style.display = canShow ? 'inline-flex' : 'none';
+    enterBtn.textContent = mobileFullscreen ? __('control.fullscreen_exit_short') : __('control.fullscreen_enter_short');
+    enterBtn.title = mobileFullscreen ? __('control.fullscreen_exit_title') : __('control.fullscreen_enter_title');
+    enterBtn.style.borderColor = mobileFullscreen ? 'var(--accent)' : 'var(--border)';
+    enterBtn.style.color = mobileFullscreen ? 'var(--accent)' : 'var(--text2)';
+  }
+  if (exitBtn) {
+    exitBtn.textContent = __('control.fullscreen_exit_short');
+    exitBtn.title = __('control.fullscreen_exit_title');
+    exitBtn.classList.toggle('hidden', !mobileFullscreen);
+  }
+}
+
+function setMobileFullscreen(next) {
+  if (next && !activeDeviceId) {
+    toast(__('common.select_device_first'), 'error');
+    return;
+  }
+  if (!isMobileViewport()) {
+    mobileFullscreen = false;
+    document.body.classList.remove('mobile-single-fullscreen');
+    updateMobileFullscreenButtons();
+    resizeMainCanvas();
+    return;
+  }
+  if (next && gridMode && typeof toggleGrid === 'function') {
+    toggleGrid();
+  }
+  mobileFullscreen = !!next;
+  document.body.classList.toggle('mobile-single-fullscreen', mobileFullscreen);
+  updateMobileFullscreenButtons();
+  requestAnimationFrame(function() {
+    requestAnimationFrame(resizeMainCanvas);
+  });
+}
+
+function toggleMobileFullscreen() {
+  setMobileFullscreen(!mobileFullscreen);
+}
 
 function getFrameBlob(arrayBuffer, frameHeader) {
   const bytes = new Uint8Array(arrayBuffer);
@@ -67,6 +137,7 @@ function getFrameBlob(arrayBuffer, frameHeader) {
     var sw = document.getElementById('lang-switch');
     if (sw) sw.textContent = lang === 'zh' ? 'ZH' : 'EN';
   })();
+  updateMobileFullscreenButtons();
 
   // connect() is called at end of ui.js
 })();
@@ -167,10 +238,7 @@ function connect() {
           canvas.width = devW;
           canvas.height = devH;
           // Maintain aspect ratio to fit container
-          var container = document.getElementById('screen-canvas-area');
-          var scale = Math.min(container.clientWidth / devW, container.clientHeight / devH);
-          canvas.style.width = (devW * scale) + 'px';
-          canvas.style.height = (devH * scale) + 'px';
+          resizeMainCanvas();
           ctx.drawImage(img, 0, 0, devW, devH);
           URL.revokeObjectURL(url);
         };
@@ -210,6 +278,15 @@ function updateStatus(_status, text) {
     document.getElementById('status-left').textContent = text;
   }
 }
+
+window.addEventListener('resize', function() {
+  if (!isMobileViewport() && mobileFullscreen) {
+    mobileFullscreen = false;
+    document.body.classList.remove('mobile-single-fullscreen');
+  }
+  updateMobileFullscreenButtons();
+  requestAnimationFrame(resizeMainCanvas);
+});
 
 // ============================================================
 // Draggable resize handle

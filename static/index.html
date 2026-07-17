@@ -15,7 +15,8 @@
   <div id="sidebar">
     <div id="sidebar-header">
       <h2 data-i18n="app.title">Touch Matrix</h2>
-      <div style="display:flex;gap:6px;">
+      <div class="header-actions" style="display:flex;gap:6px;">
+        <button id="fullscreen-toggle" onclick="toggleMobileFullscreen()" style="display:none;background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:12px;" title="">全屏</button>
         <button id="grid-toggle" onclick="toggleGrid()" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="" data-i18n-title="control.grid_view_title">▦</button>
         <button onclick="logout()" style="background:none;border:1px solid #ef4444;color:#ef4444;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:14px;" title="" data-i18n-title="control.logout_title">⤺</button>
       </div>
@@ -42,6 +43,7 @@
         <canvas id="screen-canvas" class="hidden"></canvas>
         <div id="perm-warning" style="display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(245,158,11,.15);border:1px solid var(--warn);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--warn);text-align:center;z-index:10;white-space:nowrap;"></div>
         <div id="screen-warning" style="display:none;position:absolute;top:38px;left:50%;transform:translateX(-50%);background:rgba(96,165,250,.12);border:1px solid var(--info);border-radius:8px;padding:6px 16px;font-size:12px;color:var(--info);text-align:center;z-index:10;white-space:nowrap;" data-i18n="screen_warning.off">📱 设备屏幕已关闭</div>
+        <button id="mobile-fullscreen-exit" class="hidden" onclick="toggleMobileFullscreen()" title="">复原</button>
       </div>
       <div class="resize-handle resize-handle-v" id="resize-task"></div>
       <div id="task-panel">

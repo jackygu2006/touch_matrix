@@ -191,8 +191,6 @@ let touchStartTime = 0;
 
 canvas.addEventListener('mousedown', (e) => {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = devW / rect.width;
-  const scaleY = devH / rect.height;
   touchStart = { x: Math.round(e.clientX - rect.left), y: Math.round(e.clientY - rect.top) };
   touchStartTime = Date.now();
 });
@@ -282,6 +280,9 @@ function sendGesture(dir) {
 }
 
 function toggleGrid() {
+  if (!gridMode && typeof setMobileFullscreen === 'function' && mobileFullscreen) {
+    setMobileFullscreen(false);
+  }
   gridMode = !gridMode;
   var btn = document.getElementById('grid-toggle');
   var gv = document.getElementById('grid-view');
@@ -299,6 +300,7 @@ function toggleGrid() {
     sa.style.display = ''; cb.style.display = ''; tp.style.display = '';
     gv.style.display = 'none';
     if (activeDeviceId) send({type: 'watch_one', device_id: activeDeviceId});
+    if (typeof resizeMainCanvas === 'function') setTimeout(resizeMainCanvas, 0);
   }
 }
 
@@ -369,7 +371,7 @@ function buildGrid() {
     container.appendChild(card);
     
     // Bind click events
-    (function(devId, cvsEl) {
+    (function(cvsEl) {
       var touchStart = null, touchStartTime = 0;
       cvsEl.addEventListener('mousedown', function(e) {
         var rect = cvsEl.getBoundingClientRect();
@@ -395,7 +397,7 @@ function buildGrid() {
         }
         touchStart = null;
       });
-    })(d.id, cvs);
+    })(cvs);
     deviceCanvases[d.id] = {canvas: cvs, ctx: cvs.getContext('2d'), img: new Image(), devW: 720, devH: 1600};
   });
   countEl.textContent = devices.length + ' ' + __('grid.units');
