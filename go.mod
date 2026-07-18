@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	golang.org/x/crypto v0.54.0
 	modernc.org/sqlite v1.36.3
 	nhooyr.io/websocket v1.8.17
